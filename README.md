@@ -25,9 +25,9 @@ The IR output is designed to be consumed by a separate emitter (e.g., your `java
 - `model.ir.json` in IR v1 format:
   - `IrModel.schemaVersion = "1.0"`
   - classifiers, relations, stereotypes, taggedValues
-- Optional: `report.md` with summary stats and limitations.
+- Optional: `extraction-report-v1` JSON with counts + findings (unresolved types/imports, etc.).
 
-## Usage (planned)
+## Usage
 
 ```bash
 # Install + build
@@ -37,20 +37,20 @@ npm run build
 # Basic (scaffolding in Step 1; generation implemented in later steps)
 frontend-to-ir --help
 
-# Planned usage (later steps)
-frontend-to-ir scan --project . --out out/model.ir.json
+# Scan (file inventory)
+frontend-to-ir scan --project . --out out/inventory.json
 
-# React emphasis (still works without this if autodetected)
-frontend-to-ir scan --project . --out out/react.ir.json
+# Extract IR (choose a mode)
+frontend-to-ir extract --mode ts --project . --out out/model.ir.json
+frontend-to-ir extract --mode react --project . --out out/react.ir.json
+frontend-to-ir extract --mode angular --project . --out out/angular.ir.json
+frontend-to-ir extract --mode js --project . --out out/js.ir.json
 
-# Angular emphasis
-frontend-to-ir scan --project . --out out/angular.ir.json
-
-# Include dependencies and JSX/template edges
-frontend-to-ir scan --project . --out out/model.ir.json
+# Optional report
+frontend-to-ir extract --mode react --project . --out out/react.ir.json --report out/report.json
 
 # Exclusions
-frontend-to-ir scan --project . --out out/model.ir.json
+frontend-to-ir extract --mode ts --project . --out out/model.ir.json --exclude "**/generated/**"
 ```
 
 ## IR compatibility

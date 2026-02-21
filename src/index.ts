@@ -10,3 +10,6 @@ export * from './scan/sourceScanner';
 export * from './scan/inventory';
 
 export * from './extract/ts/tsExtractor';
+
+export * from './report/extractionReport';
+export * from './report/writeReport';

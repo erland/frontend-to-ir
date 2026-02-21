@@ -14,8 +14,10 @@ import {
   IrSourceRef,
 } from '../../ir/irV1';
 import { hashId, toPosixPath } from '../../util/id';
-import { typeToIrTypeRef, collectReferencedTypeSymbols } from './typeRef';
+import { typeToIrTypeRef, typeNodeToIrTypeRef, collectReferencedTypeSymbols } from './typeRef';
 import { canonicalizeIrModel } from '../../ir/canonicalizeIrModel';
+import type { ExtractionReport } from '../../report/extractionReport';
+import { addFinding, incCount } from '../../report/reportBuilder';
 
 export type TsExtractOptions = {
   projectRoot: string;
@@ -30,6 +32,8 @@ export type TsExtractOptions = {
   forceAllowJs?: boolean;
   /** Emit module classifiers + file-level import dependency edges. */
   importGraph?: boolean;
+  /** Optional extraction report to populate. */
+  report?: ExtractionReport;
 };
 
 type DeclaredSymbol = {
@@ -104,6 +108,11 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
   const scannedRel = await scanSourceFiles({ sourceRoot: projectRoot, excludeGlobs, includeTests });
   const scannedAbs = scannedRel.map((r) => path.resolve(projectRoot, r));
 
+  if (opts.report) {
+    opts.report.filesScanned = scannedRel.length;
+    opts.report.filesProcessed = 0; // updated after program created
+  }
+
   // Respect tsconfig options if present (but we still control rootNames via scanner)
   const configPath = opts.tsconfigPath
     ? path.resolve(projectRoot, opts.tsconfigPath)
@@ -133,6 +142,11 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
     options: compilerOptions,
   });
   const checker = program.getTypeChecker();
+
+  if (opts.report) {
+    // program.getSourceFiles includes lib files; count only our scanned set.
+    opts.report.filesProcessed = scannedRel.length;
+  }
 
   const model = createEmptyIrModel();
 
@@ -329,7 +343,7 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
               isFinal: (member as any).modifiers?.some((m: ts.Modifier) => m.kind === ts.SyntaxKind.ReadonlyKeyword)
                 ? true
                 : undefined,
-              type: typeToIrTypeRef(type, checker),
+              type: (member as any).type ? typeNodeToIrTypeRef((member as any).type, checker) : typeToIrTypeRef(type, checker),
               source: sourceRefForNode(sf, member, projectRoot),
             });
 
@@ -356,13 +370,13 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
             const returnType: import('../../ir/irV1').IrTypeRef = isCtor
               ? { kind: 'NAMED', name: cls.name }
               : sig
-                ? typeToIrTypeRef(checker.getReturnTypeOfSignature(sig), checker)
+                ? ((member as any).type ? typeNodeToIrTypeRef((member as any).type, checker) : typeToIrTypeRef(checker.getReturnTypeOfSignature(sig), checker))
                 : { kind: 'UNKNOWN', name: 'unknown' };
 
             const parameters = (member as ts.SignatureDeclaration).parameters.map((p) => {
               const pn = ts.isIdentifier(p.name) ? p.name.text : 'param';
               const pt = p.type ? checker.getTypeFromTypeNode(p.type) : checker.getTypeAtLocation(p);
-              return { name: pn, type: typeToIrTypeRef(pt, checker) };
+              return { name: pn, type: p.type ? typeNodeToIrTypeRef(p.type, checker) : typeToIrTypeRef(pt, checker) };
             });
 
             cls.operations!.push({
@@ -404,11 +418,11 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
           cls.operations!.push({
             id: hashId('o:', `${cls.id}:${cls.name}`),
             name: cls.name,
-            returnType: typeToIrTypeRef(checker.getReturnTypeOfSignature(sig), checker),
+            returnType: node.type ? typeNodeToIrTypeRef(node.type, checker) : typeToIrTypeRef(checker.getReturnTypeOfSignature(sig), checker),
             parameters: node.parameters.map((p) => {
               const pn = ts.isIdentifier(p.name) ? p.name.text : 'param';
               const pt = p.type ? checker.getTypeFromTypeNode(p.type) : checker.getTypeAtLocation(p);
-              return { name: pn, type: typeToIrTypeRef(pt, checker) };
+              return { name: pn, type: p.type ? typeNodeToIrTypeRef(p.type, checker) : typeToIrTypeRef(pt, checker) };
             }),
             source: sourceRefForNode(sf, node, projectRoot),
           });
@@ -434,6 +448,7 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
       projectRoot,
       scannedRel,
       model,
+      report: opts.report,
     });
   }
 
@@ -444,6 +459,7 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
       projectRoot,
       scannedRel,
       model,
+      report: opts.report,
     });
   }
 
@@ -455,10 +471,108 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
       scannedRel,
       ensureFileModule: (relFile: string, pkgId: string) => ensureFileModule(relFile, pkgId),
       pkgByDir,
+      report: opts.report,
     });
     model.relations = [...(model.relations ?? []), ...extra];
     // module classifiers were already inserted into classifierById via ensureFileModule.
     model.classifiers = Array.from(classifierById.values());
+  }
+
+  // Step 8: populate report counts + unresolved tracking.
+  if (opts.report) {
+    for (const c of model.classifiers) incCount(opts.report.counts.classifiersByKind, c.kind);
+    for (const r of model.relations ?? []) incCount(opts.report.counts.relationsByKind, r.kind);
+
+    const classifierByName = new Map<string, IrClassifier>();
+    for (const c of model.classifiers) classifierByName.set(c.name, c);
+
+    const isBuiltin = (name: string) =>
+      [
+        'string',
+        'number',
+        'boolean',
+        'bigint',
+        'void',
+        'never',
+        'any',
+        'unknown',
+        'Array',
+        'ReadonlyArray',
+        'Promise',
+        'Record',
+        'Map',
+        'Set',
+        'Date',
+        'RegExp',
+        'Error',
+        'Function',
+        'Object',
+        'String',
+        'Number',
+        'Boolean',
+      ].includes(name);
+
+    const collectNamed = (tr: IrTypeRef | null | undefined, out: Set<string>) => {
+      if (!tr) return;
+      if (tr.kind === 'NAMED') {
+        if (tr.name) out.add(tr.name);
+        return;
+      }
+      if (tr.kind === 'GENERIC') {
+        if (tr.name) out.add(tr.name);
+        (tr.typeArgs ?? []).forEach((a) => collectNamed(a, out));
+        return;
+      }
+      if (tr.kind === 'ARRAY') {
+        collectNamed(tr.elementType, out);
+        return;
+      }
+      if (tr.kind === 'UNION' || tr.kind === 'INTERSECTION') {
+        (tr.typeArgs ?? []).forEach((a) => collectNamed(a, out));
+      }
+    };
+
+    for (const c of model.classifiers) {
+      const locFile = c.source?.file;
+      const line = c.source?.line ?? undefined;
+      const col = (c.source as any)?.col ?? undefined;
+      const baseLoc = locFile ? { file: locFile, line: line === null ? undefined : line, column: col } : undefined;
+
+      for (const a of c.attributes ?? []) {
+        const names = new Set<string>();
+        collectNamed(a.type, names);
+        for (const nm of names) {
+          if (isBuiltin(nm)) continue;
+          if (!classifierByName.has(nm)) {
+            addFinding(opts.report, {
+              kind: 'unresolvedType',
+              severity: 'warning',
+              message: `Unresolved attribute type '${nm}' on ${c.name}.${a.name}`,
+              location: baseLoc,
+              tags: { owner: c.name, member: a.name, role: 'attribute', type: nm },
+            });
+          }
+        }
+      }
+
+      for (const op of c.operations ?? []) {
+        const names = new Set<string>();
+        collectNamed(op.returnType, names);
+        for (const p of op.parameters ?? []) collectNamed(p.type, names);
+        for (const nm of names) {
+          if (isBuiltin(nm)) continue;
+          if (!classifierByName.has(nm)) {
+            addFinding(opts.report, {
+              kind: 'unresolvedType',
+              severity: 'warning',
+              message: `Unresolved operation type '${nm}' on ${c.name}.${op.name}()` ,
+              location: baseLoc,
+              tags: { owner: c.name, member: op.name, role: 'operation', type: nm },
+            });
+          }
+        }
+      }
+    }
   }
 
   return canonicalizeIrModel(model);
@@ -471,10 +585,11 @@ type ImportGraphContext = {
   scannedRel: string[];
   pkgByDir: Map<string, { id: string; name: string; qualifiedName: string | null; parentId: string | null }>;
   ensureFileModule: (relFile: string, pkgId: string) => IrClassifier;
+  report?: ExtractionReport;
 };
 
 function extractImportGraphRelations(ctx: ImportGraphContext): IrRelation[] {
-  const { program, compilerOptions, projectRoot, scannedRel, pkgByDir, ensureFileModule } = ctx;
+  const { program, compilerOptions, projectRoot, scannedRel, pkgByDir, ensureFileModule, report } = ctx;
 
   const toRelIfInProject = (abs: string) => {
     const rel = toPosixPath(path.relative(projectRoot, abs));
@@ -540,6 +655,15 @@ function extractImportGraphRelations(ctx: ImportGraphContext): IrRelation[] {
           const spec = ms.text;
           const toRel = resolveToRel(spec, sf.fileName);
           if (toRel) addDep(sf, fromRel, toRel, 'import', spec, n);
+          else if (report && spec.startsWith('.')) {
+            addFinding(report, {
+              kind: 'unresolvedImport',
+              severity: 'warning',
+              message: `Unresolved import '${spec}' from ${fromRel}`,
+              location: { file: fromRel },
+              tags: { specifier: spec, origin: 'import' },
+            });
+          }
         }
       }
 
@@ -550,6 +674,15 @@ function extractImportGraphRelations(ctx: ImportGraphContext): IrRelation[] {
           const spec = arg0.text;
           const toRel = resolveToRel(spec, sf.fileName);
           if (toRel) addDep(sf, fromRel, toRel, 'require', spec, n);
+          else if (report && spec.startsWith('.')) {
+            addFinding(report, {
+              kind: 'unresolvedImport',
+              severity: 'warning',
+              message: `Unresolved require('${spec}') from ${fromRel}`,
+              location: { file: fromRel },
+              tags: { specifier: spec, origin: 'require' },
+            });
+          }
         }
       }
       ts.forEachChild(n, visit);
@@ -566,10 +699,11 @@ type ReactEnrichContext = {
   projectRoot: string;
   scannedRel: string[];
   model: IrModel;
+  report?: ExtractionReport;
 };
 
 function enrichReactModel(ctx: ReactEnrichContext) {
-  const { program, projectRoot, scannedRel, model } = ctx;
+  const { program, projectRoot, scannedRel, model, report } = ctx;
 
   const classifierByFileAndName = new Map<string, IrClassifier>();
   for (const c of model.classifiers) {
@@ -712,10 +846,28 @@ function enrichReactModel(ctx: ReactEnrichContext) {
         const tag = jsxTagNameToString(n.tagName);
         const toId = tag ? componentIdByName.get(tag) : undefined;
         if (toId) addRender(sf, fromId, toId, n);
+        else if (report && tag && isPascalCase(tag)) {
+          addFinding(report, {
+            kind: 'unresolvedJsxComponent',
+            severity: 'warning',
+            message: `JSX renders '${tag}' but no matching component classifier was found`,
+            location: { file: toPosixPath(path.relative(projectRoot, sf.fileName)) },
+            tags: { owner: ownerName, tag },
+          });
+        }
       } else if (ts.isJsxOpeningElement(n)) {
         const tag = jsxTagNameToString(n.tagName);
         const toId = tag ? componentIdByName.get(tag) : undefined;
         if (toId) addRender(sf, fromId, toId, n);
+        else if (report && tag && isPascalCase(tag)) {
+          addFinding(report, {
+            kind: 'unresolvedJsxComponent',
+            severity: 'warning',
+            message: `JSX renders '${tag}' but no matching component classifier was found`,
+            location: { file: toPosixPath(path.relative(projectRoot, sf.fileName)) },
+            tags: { owner: ownerName, tag },
+          });
+        }
       }
       ts.forEachChild(n, visit);
     };
@@ -800,10 +952,11 @@ type AngularEnrichContext = {
   projectRoot: string;
   scannedRel: string[];
   model: IrModel;
+  report?: ExtractionReport;
 };
 
 function enrichAngularModel(ctx: AngularEnrichContext) {
-  const { program, checker, projectRoot, scannedRel, model } = ctx;
+  const { program, checker, projectRoot, scannedRel, model, report } = ctx;
 
   const classifierByName = new Map<string, IrClassifier>();
   for (const c of model.classifiers) classifierByName.set(c.name, c);
@@ -976,6 +1129,15 @@ function enrichAngularModel(ctx: AngularEnrichContext) {
                     { key: 'role', value: role },
                   ]);
                 }
+                else if (report) {
+                  addFinding(report, {
+                    kind: 'unresolvedDecoratorRef',
+                    severity: 'warning',
+                    message: `NgModule ${role} references '${nm}' but it was not found as a classifier`,
+                    location: { file: rel },
+                    tags: { owner: c.name, role, ref: nm },
+                  });
+                }
               }
             }
           }
@@ -990,6 +1152,15 @@ function enrichAngularModel(ctx: AngularEnrichContext) {
               if (!tn) continue;
               const to = classifierByName.get(tn);
               if (to) addRelation(sf, 'DI', c.id, to.id, p, [{ key: 'origin', value: 'constructor' }]);
+              else if (report) {
+                addFinding(report, {
+                  kind: 'unresolvedType',
+                  severity: 'warning',
+                  message: `Constructor DI parameter type '${tn}' on ${c.name} was not found as a classifier`,
+                  location: { file: rel },
+                  tags: { owner: c.name, type: tn, origin: 'constructor' },
+                });
+              }
             }
           }
         }
