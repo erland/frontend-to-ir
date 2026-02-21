@@ -1,0 +1,54 @@
+name: Package
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Create npm package tarball
+        run: npm pack
+
+      - name: Create zip bundle (dist + docs + package.json)
+        run: |
+          mkdir -p bundle
+          cp -r dist docs README.md package.json package-lock.json bundle/
+          (cd bundle && zip -r ../frontend-to-ir-bundle.zip .)
+
+      - name: Upload npm pack artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-pack
+          path: "*.tgz"
+          if-no-files-found: error
+
+      - name: Upload zip bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-to-ir-bundle
+          path: frontend-to-ir-bundle.zip
+          if-no-files-found: error
