@@ -7,5 +7,12 @@ module.exports = {
     '<rootDir>/src/**/__tests__/**/*.spec.ts'
   ],
   moduleFileExtensions: ['ts', 'js', 'json'],
-  clearMocks: true
+  clearMocks: true,
+  collectCoverageFrom: [
+    'src/**/*.ts',
+    '!src/**/__tests__/**',
+    '!src/**/*.d.ts'
+  ],
+  coverageDirectory: 'coverage',
+  coverageReporters: ['text', 'lcov']
 };

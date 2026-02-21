@@ -16,7 +16,9 @@
     "dev": "node -r ts-node/register src/cli.ts --help",
     "test": "jest",
     "test:watch": "jest --watch",
-    "clean": "rm -rf dist"
+    "clean": "rm -rf dist",
+    "test:coverage": "jest --coverage",
+    "coverage": "npm run test:coverage"
   },
   "dependencies": {
     "commander": "^12.1.0",
