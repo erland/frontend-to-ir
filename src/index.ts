@@ -6,3 +6,5 @@ export * from './ir/irV1';
 export * from './ir/writeIrJson';
 export * from './ir/canonicalizeIrModel';
 export * from './ir/deterministicJson';
+export * from './scan/sourceScanner';
+export * from './scan/inventory';
