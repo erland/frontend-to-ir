@@ -4,6 +4,7 @@ import { IrClassifier, IrRelation, IrRelationKind, IrSourceRef } from '../../../
 import { hashId, toPosixPath } from '../../../util/id';
 import type { ExtractionReport } from '../../../report/extractionReport';
 import { addFinding } from '../../../report/reportBuilder';
+import type { EnsureFileModuleFn, ExtractorContext, IrPackageInfo } from '../context';
 
 
 function sourceRefForNode(sf: ts.SourceFile, node: ts.Node, projectRoot: string): IrSourceRef {
@@ -16,13 +17,10 @@ function sourceRefForNode(sf: ts.SourceFile, node: ts.Node, projectRoot: string)
   };
 }
 
-export type ImportGraphContext = {
-  program: ts.Program;
+export type ImportGraphContext = Omit<ExtractorContext, 'model' | 'checker'> & {
   compilerOptions: ts.CompilerOptions;
-  projectRoot: string;
-  scannedRel: string[];
-  pkgByDir: Map<string, { id: string; name: string; qualifiedName: string | null; parentId: string | null }>;
-  ensureFileModule: (relFile: string, pkgId: string) => IrClassifier;
+  pkgByDir: Map<string, IrPackageInfo>;
+  ensureFileModule: EnsureFileModuleFn;
   report?: ExtractionReport;
 };
 

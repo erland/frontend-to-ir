@@ -1,21 +1,7 @@
 import ts from 'typescript';
 import path from 'node:path';
 import { scanSourceFiles } from '../../scan/sourceScanner';
-import {
-  createEmptyIrModel,
-  IrClassifier,
-  IrModel,
-  IrRelation,
-  IrRelationKind,
-  IrAttribute,
-  IrTaggedValue,
-  IrTypeRef,
-  IrVisibility,
-  IrClassifierKind,
-  IrSourceRef,
-} from '../../ir/irV1';
-import { hashId, toPosixPath } from '../../util/id';
-import { typeToIrTypeRef, typeNodeToIrTypeRef, collectReferencedTypeSymbols } from './typeRef';
+import { IrClassifier, IrTypeRef } from '../../ir/irV1';
 import { enrichReactModel } from './react/reactEnricher';
 import { enrichAngularModel } from './angular/angularEnricher';
 import { canonicalizeIrModel } from '../../ir/canonicalizeIrModel';
@@ -24,6 +10,7 @@ import { addFinding, incCount } from '../../report/reportBuilder';
 import { extractImportGraphRelations } from './imports/importGraph';
 import { extractStructuralModel } from './structural/structuralExtractor';
 import { createProgramFromScan } from './program/createProgram';
+import type { ExtractorContext } from './context';
 
 export type TsExtractOptions = {
   projectRoot: string;
@@ -93,30 +80,21 @@ const { program, checker, compilerOptions } = createProgramFromScan({
     },
   });
 
-  if (opts.react) {
-    enrichReactModel({
-      program,
-      checker,
-      projectRoot,
-      scannedRel,
-      model,
-      report: opts.report,
-      includeFrameworkEdges: opts.includeFrameworkEdges,
-    });
-  }
+  const ctx: ExtractorContext = {
+    program,
+    checker,
+    projectRoot,
+    scannedRel,
+    model,
+    pkgByDir,
+    ensureFileModule,
+    report: opts.report,
+    includeDeps: opts.includeDeps,
+    includeFrameworkEdges: opts.includeFrameworkEdges,
+  };
 
-  if (opts.angular) {
-    enrichAngularModel({
-      program,
-      checker,
-      projectRoot,
-      scannedRel,
-      model,
-      report: opts.report,
-      includeFrameworkEdges: opts.includeFrameworkEdges,
-      includeDeps: opts.includeDeps,
-    });
-  }
+  if (opts.react) enrichReactModel(ctx);
+  if (opts.angular) enrichAngularModel(ctx);
 
   if (opts.importGraph) {
     const extra = extractImportGraphRelations({

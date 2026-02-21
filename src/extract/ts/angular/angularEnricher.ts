@@ -5,6 +5,7 @@ import type { ExtractionReport } from '../../../report/extractionReport';
 import { addFinding } from '../../../report/reportBuilder';
 import { hashId } from '../../../util/id';
 import { typeNodeToIrTypeRef } from '../typeRef';
+import type { ExtractorContext } from '../context';
 
 function toPosixPath(p: string): string {
   return p.split(path.sep).join('/');
@@ -16,20 +17,12 @@ function sourceRefForNode(sf: ts.SourceFile, node: ts.Node, projectRoot: string)
   return { file: rel, line: lc.line + 1 };
 }
 
-export type AngularEnrichContext = {
-  program: ts.Program;
-  checker: ts.TypeChecker;
-  projectRoot: string;
-  scannedRel: string[];
-  model: IrModel;
-  report?: ExtractionReport;
-  includeFrameworkEdges?: boolean;
-  includeDeps?: boolean;
-};
+export function enrichAngularModel(ctx: ExtractorContext) {
 
-export function enrichAngularModel(ctx: AngularEnrichContext) {
-
-  const { program, checker, projectRoot, scannedRel, model, report, includeFrameworkEdges, includeDeps } = ctx;
+  const { program, projectRoot, scannedRel, model, report } = ctx;
+  const checker = ctx.checker;
+  const includeFrameworkEdges = ctx.includeFrameworkEdges;
+  const includeDeps = ctx.includeDeps;
 
   const classifierByName = new Map<string, IrClassifier>();
   for (const c of model.classifiers) classifierByName.set(c.name, c);
@@ -48,7 +41,7 @@ export function enrichAngularModel(ctx: AngularEnrichContext) {
 
   const existingKeys = new Set<string>();
   for (const r of model.relations ?? []) {
-    const role = (r.taggedValues ?? []).find((tv) => tv.key === 'role')?.value ?? '';
+    const role = (r.taggedValues ?? []).find((tv: IrTaggedValue) => tv.key === 'role')?.value ?? '';
     existingKeys.add(`${r.kind}:${r.sourceId}:${r.targetId}:${role}`);
   }
 

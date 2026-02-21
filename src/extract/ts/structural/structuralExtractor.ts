@@ -16,6 +16,7 @@ import { hashId, toPosixPath } from '../../../util/id';
 import { typeToIrTypeRef, typeNodeToIrTypeRef, collectReferencedTypeSymbols } from '../typeRef';
 import type { ExtractionReport } from '../../../report/extractionReport';
 import { addFinding, incCount } from '../../../report/reportBuilder';
+import type { EnsureFileModuleFn, IrPackageInfo } from '../context';
 
 export type StructuralExtractOptions = {
   importGraph?: boolean;
@@ -23,12 +24,10 @@ export type StructuralExtractOptions = {
   report?: ExtractionReport;
 };
 
-export type PackageRec = { id: string; name: string; qualifiedName: string | null; parentId: string | null };
-
 export type StructuralExtractResult = {
   model: IrModel;
-  pkgByDir: Map<string, PackageRec>;
-  ensureFileModule: (relFile: string, pkgId: string) => IrClassifier;
+  pkgByDir: Map<string, IrPackageInfo>;
+  ensureFileModule: EnsureFileModuleFn;
 };
 
 type DeclaredSymbol = {
@@ -61,7 +60,7 @@ function classifierKindFromNode(node: ts.Node): IrClassifierKind | null {
 }
 
 function buildPackageMap(filesAbs: string[], projectRoot: string) {
-  const pkgByDir = new Map<string, PackageRec>();
+  const pkgByDir = new Map<string, IrPackageInfo>();
 
   const ensurePkg = (dirRel: string) => {
     const dir = dirRel === '.' ? '' : toPosixPath(dirRel);
@@ -69,12 +68,12 @@ function buildPackageMap(filesAbs: string[], projectRoot: string) {
 
     const parts = dir ? dir.split('/') : [];
     const name = parts.length ? parts[parts.length - 1] : '(root)';
-    const qualifiedName = parts.length ? parts.join('.') : null;
+    const qualifiedName = parts.length ? parts.join('.') : '(root)';
     const parentDir = parts.length > 1 ? parts.slice(0, -1).join('/') : '';
-    const parentId = parts.length ? hashId('pkg:', parentDir === '' ? '(root)' : parentDir) : null;
+    const parentId = parts.length ? hashId('pkg:', parentDir === '' ? '(root)' : parentDir) : undefined;
     const id = hashId('pkg:', dir === '' ? '(root)' : dir);
 
-    const rec = { id, name, qualifiedName, parentId };
+    const rec: IrPackageInfo = { id, name, qualifiedName, parentId };
     pkgByDir.set(dir, rec);
 
     if (parts.length > 0) ensurePkg(parentDir);

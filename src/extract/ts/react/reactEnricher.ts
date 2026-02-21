@@ -1,10 +1,11 @@
 import ts from 'typescript';
 import path from 'node:path';
-import { IrClassifier, IrModel, IrRelation, IrSourceRef, IrTypeRef } from '../../../ir/irV1';
+import { IrClassifier, IrModel, IrRelation, IrSourceRef, IrTypeRef, IrTaggedValue } from '../../../ir/irV1';
 import type { ExtractionReport } from '../../../report/extractionReport';
 import { addFinding } from '../../../report/reportBuilder';
 import { typeNodeToIrTypeRef } from '../typeRef';
 import { hashId } from '../../../util/id';
+import type { ExtractorContext } from '../context';
 
 function toPosixPath(p: string): string {
   return p.split(path.sep).join('/');
@@ -16,18 +17,9 @@ function sourceRefForNode(sf: ts.SourceFile, node: ts.Node, projectRoot: string)
   return { file: rel, line: lc.line + 1 };
 }
 
-export type ReactEnrichContext = {
-  program: ts.Program;
-  checker: ts.TypeChecker;
-  projectRoot: string;
-  scannedRel: string[];
-  model: IrModel;
-  report?: ExtractionReport;
-  includeFrameworkEdges?: boolean;
-};
-
-export function enrichReactModel(ctx: ReactEnrichContext) {
-  const { program, projectRoot, scannedRel, model, report, includeFrameworkEdges } = ctx;
+export function enrichReactModel(ctx: ExtractorContext) {
+  const { program, projectRoot, scannedRel, model, report } = ctx;
+  const includeFrameworkEdges = ctx.includeFrameworkEdges;
 
   const classifierByFileAndName = new Map<string, IrClassifier>();
   for (const c of model.classifiers) {
@@ -36,7 +28,7 @@ export function enrichReactModel(ctx: ReactEnrichContext) {
     classifierByFileAndName.set(`${file}::${c.name}`, c);
   }
 
-  const checker = program.getTypeChecker();
+  const checker = ctx.checker;
 
   const isPascalCase = (s: string) => /^[A-Z][A-Za-z0-9_]*$/.test(s);
   const hasStereotype = (c: IrClassifier, name: string) => (c.stereotypes ?? []).some((st) => st.name === name);
@@ -62,7 +54,7 @@ export function enrichReactModel(ctx: ReactEnrichContext) {
     const key = `${relFile}::${name}`;
     let c = classifierByFileAndName.get(key);
     if (!c) {
-      const existing = model.classifiers.filter((x) => x.name === name && hasContextStereo(x));
+      const existing = model.classifiers.filter((x: IrClassifier) => x.name === name && hasContextStereo(x));
       if (existing.length === 1) c = existing[0];
     }
 
@@ -268,7 +260,7 @@ const isReactFctype = (tn: ts.TypeNode, sf: ts.SourceFile): ts.TypeNode | null =
   const existingDiKeys = new Set<string>();
   for (const r of model.relations ?? []) {
     if (r.kind === 'DI') {
-      const origin = (r.taggedValues ?? []).find((tv) => tv.key === 'origin')?.value ?? '';
+      const origin = (r.taggedValues ?? []).find((tv: IrTaggedValue) => tv.key === 'origin')?.value ?? '';
       existingDiKeys.add(`DI:${r.sourceId}:${r.targetId}:${origin}`);
     }
   }
@@ -434,7 +426,7 @@ const isReactFctype = (tn: ts.TypeNode, sf: ts.SourceFile): ts.TypeNode | null =
     const rel = toPosixPath(path.relative(projectRoot, sf.fileName));
     if (!scannedRel.includes(rel)) continue;
 
-    sf.forEachChild((node) => {
+    sf.forEachChild((node: ts.Node) => {
       if (ts.isFunctionDeclaration(node) && node.name?.text && componentIdByName.has(node.name.text)) {
         scanJsx(sf, node, node.name.text);
         scanUseContext(sf, node, node.name.text);
