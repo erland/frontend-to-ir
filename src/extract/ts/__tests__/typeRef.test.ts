@@ -84,6 +84,6 @@ describe('typeRef', () => {
     const ir = typeToIrTypeRef(t, checker);
 
     expect(ir.kind).toBe('UNION');
-    expect(ir.typeArgs?.every((x) => x.kind === 'PRIMITIVE' && x.name === 'string')).toBe(true);
+    expect(ir.typeArgs?.every((x: any) => x.kind === 'PRIMITIVE' && x.name === 'string')).toBe(true);
   });
 });
