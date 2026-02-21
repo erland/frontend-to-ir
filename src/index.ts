@@ -8,3 +8,5 @@ export * from './ir/canonicalizeIrModel';
 export * from './ir/deterministicJson';
 export * from './scan/sourceScanner';
 export * from './scan/inventory';
+
+export * from './extract/ts/tsExtractor';
