@@ -10,7 +10,7 @@ function makeModel(order: 'a' | 'b'): IrModel {
             name: 'Z',
             qualifiedName: 'Z',
             kind: 'CLASS' as const,
-            stereotypes: ['B', 'A'],
+            stereotypes: [{ name: 'B' }, { name: 'A' }],
             taggedValues: [
               { key: 'k2', value: 'v2' },
               { key: 'k1', value: 'v1' },
@@ -29,7 +29,7 @@ function makeModel(order: 'a' | 'b'): IrModel {
             name: 'Z',
             qualifiedName: 'Z',
             kind: 'CLASS' as const,
-            stereotypes: ['A', 'B'],
+            stereotypes: [{ name: 'A' }, { name: 'B' }],
             taggedValues: [
               { key: 'k1', value: 'v1' },
               { key: 'k2', value: 'v2' },
@@ -42,7 +42,7 @@ function makeModel(order: 'a' | 'b'): IrModel {
         ];
 
   return {
-    schemaVersion: 1,
+    schemaVersion: '1.0',
     classifiers,
     relations: [
       { id: 'r:ASSOCIATION:c:Z->c:A', kind: 'ASSOCIATION', sourceId: 'c:Z', targetId: 'c:A' },

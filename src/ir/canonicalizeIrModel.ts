@@ -5,6 +5,7 @@ import type {
   IrOperation,
   IrPackage,
   IrRelation,
+  IrStereotype,
   IrTaggedValue,
 } from './irV1';
 
@@ -28,7 +29,6 @@ export function canonicalizeIrModel(model: IrModel): IrModel {
 function canonicalizePackage(p: IrPackage): IrPackage {
   return {
     ...p,
-    stereotypes: canonicalizeStringArray(p.stereotypes),
     taggedValues: canonicalizeTaggedValues(p.taggedValues),
   };
 }
@@ -36,9 +36,9 @@ function canonicalizePackage(p: IrPackage): IrPackage {
 function canonicalizeClassifier(c: IrClassifier): IrClassifier {
   return {
     ...c,
-    attributes: sortById(c.attributes ?? []).map(canonicalizeAttribute),
-    operations: sortById(c.operations ?? []).map(canonicalizeOperation),
-    stereotypes: canonicalizeStringArray(c.stereotypes),
+    attributes: sortByNullableIdOrName(c.attributes ?? [], (a) => a.name).map(canonicalizeAttribute),
+    operations: sortByNullableIdOrName(c.operations ?? [], (o) => o.name).map(canonicalizeOperation),
+    stereotypes: canonicalizeStereotypes(c.stereotypes),
     taggedValues: canonicalizeTaggedValues(c.taggedValues),
   };
 }
@@ -46,7 +46,7 @@ function canonicalizeClassifier(c: IrClassifier): IrClassifier {
 function canonicalizeAttribute(a: IrAttribute): IrAttribute {
   return {
     ...a,
-    stereotypes: canonicalizeStringArray(a.stereotypes),
+    stereotypes: canonicalizeStereotypes(a.stereotypes),
     taggedValues: canonicalizeTaggedValues(a.taggedValues),
   };
 }
@@ -55,7 +55,7 @@ function canonicalizeOperation(o: IrOperation): IrOperation {
   return {
     ...o,
     parameters: (o.parameters ?? []).slice().sort((x, y) => x.name.localeCompare(y.name)),
-    stereotypes: canonicalizeStringArray(o.stereotypes),
+    stereotypes: canonicalizeStereotypes(o.stereotypes),
     taggedValues: canonicalizeTaggedValues(o.taggedValues),
   };
 }
@@ -63,13 +63,20 @@ function canonicalizeOperation(o: IrOperation): IrOperation {
 function canonicalizeRelation(r: IrRelation): IrRelation {
   return {
     ...r,
-    stereotypes: canonicalizeStringArray(r.stereotypes),
+    stereotypes: canonicalizeStereotypes(r.stereotypes),
     taggedValues: canonicalizeTaggedValues(r.taggedValues),
   };
 }
 
-function canonicalizeStringArray(arr?: string[]): string[] {
-  return (arr ?? []).slice().sort((a, b) => a.localeCompare(b));
+function canonicalizeStereotypes(arr?: IrStereotype[]): IrStereotype[] {
+  return (arr ?? [])
+    .slice()
+    .sort((a, b) =>
+      a.name === b.name
+        ? String(a.qualifiedName ?? '').localeCompare(String(b.qualifiedName ?? ''))
+        : a.name.localeCompare(b.name),
+    )
+    .map((s) => ({ name: s.name, qualifiedName: s.qualifiedName ?? null }));
 }
 
 function canonicalizeTaggedValues(arr?: IrTaggedValue[]): IrTaggedValue[] {
@@ -80,4 +87,15 @@ function canonicalizeTaggedValues(arr?: IrTaggedValue[]): IrTaggedValue[] {
 
 function sortById<T extends { id: string }>(arr: T[]): T[] {
   return arr.slice().sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function sortByNullableIdOrName<T extends { id?: string | null }>(
+  arr: T[],
+  nameFn: (t: T) => string,
+): T[] {
+  return arr.slice().sort((a, b) => {
+    const ak = a.id ?? nameFn(a);
+    const bk = b.id ?? nameFn(b);
+    return ak.localeCompare(bk);
+  });
 }

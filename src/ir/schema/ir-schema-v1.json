@@ -1,0 +1,484 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/java-to-xmi/ir-schema-v1.json",
+  "title": "java-to-xmi IR v1",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "classifiers"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string"
+    },
+    "packages": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/IrPackage"
+      }
+    },
+    "classifiers": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/IrClassifier"
+      }
+    },
+    "relations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/IrRelation"
+      }
+    },
+    "taggedValues": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/IrTaggedValue"
+      }
+    }
+  },
+  "$defs": {
+    "IrTaggedValue": {
+      "type": "object",
+      "required": [
+        "key",
+        "value"
+      ],
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "IrStereotype": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "qualifiedName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "IrSourceRef": {
+      "type": "object",
+      "required": [
+        "file"
+      ],
+      "properties": {
+        "file": {
+          "type": "string"
+        },
+        "line": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "col": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "IrTypeRefKind": {
+      "type": "string",
+      "enum": [
+        "NAMED",
+        "PRIMITIVE",
+        "GENERIC",
+        "ARRAY",
+        "UNION",
+        "INTERSECTION",
+        "UNKNOWN"
+      ]
+    },
+    "IrTypeRef": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/IrTypeRefKind"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "typeArgs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrTypeRef"
+          }
+        },
+        "elementType": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IrTypeRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "taggedValues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrTaggedValue"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "IrVisibility": {
+      "type": "string",
+      "enum": [
+        "PUBLIC",
+        "PROTECTED",
+        "PACKAGE",
+        "PRIVATE"
+      ]
+    },
+    "IrClassifierKind": {
+      "type": "string",
+      "enum": [
+        "CLASS",
+        "INTERFACE",
+        "ENUM",
+        "RECORD",
+        "TYPE_ALIAS",
+        "FUNCTION",
+        "COMPONENT",
+        "SERVICE",
+        "MODULE"
+      ]
+    },
+    "IrAttribute": {
+      "type": "object",
+      "required": [
+        "name",
+        "type"
+      ],
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "visibility": {
+          "$ref": "#/$defs/IrVisibility"
+        },
+        "isStatic": {
+          "type": "boolean"
+        },
+        "isFinal": {
+          "type": "boolean"
+        },
+        "type": {
+          "$ref": "#/$defs/IrTypeRef"
+        },
+        "stereotypes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrStereotype"
+          }
+        },
+        "taggedValues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrTaggedValue"
+          }
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IrSourceRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "IrParameter": {
+      "type": "object",
+      "required": [
+        "name",
+        "type"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/$defs/IrTypeRef"
+        },
+        "taggedValues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrTaggedValue"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "IrOperation": {
+      "type": "object",
+      "required": [
+        "name",
+        "returnType"
+      ],
+      "properties": {
+        "id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "visibility": {
+          "$ref": "#/$defs/IrVisibility"
+        },
+        "isStatic": {
+          "type": "boolean"
+        },
+        "isAbstract": {
+          "type": "boolean"
+        },
+        "isConstructor": {
+          "type": "boolean"
+        },
+        "returnType": {
+          "$ref": "#/$defs/IrTypeRef"
+        },
+        "parameters": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrParameter"
+          }
+        },
+        "stereotypes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrStereotype"
+          }
+        },
+        "taggedValues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrTaggedValue"
+          }
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IrSourceRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "IrClassifier": {
+      "type": "object",
+      "required": [
+        "id",
+        "name",
+        "kind"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "qualifiedName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "packageId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/IrClassifierKind"
+        },
+        "visibility": {
+          "$ref": "#/$defs/IrVisibility"
+        },
+        "attributes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrAttribute"
+          }
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrOperation"
+          }
+        },
+        "stereotypes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrStereotype"
+          }
+        },
+        "taggedValues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrTaggedValue"
+          }
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IrSourceRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "IrPackage": {
+      "type": "object",
+      "required": [
+        "id",
+        "name"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "qualifiedName": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "parentId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "taggedValues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrTaggedValue"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "IrRelationKind": {
+      "type": "string",
+      "enum": [
+        "GENERALIZATION",
+        "REALIZATION",
+        "ASSOCIATION",
+        "DEPENDENCY",
+        "COMPOSITION",
+        "AGGREGATION",
+        "RENDER",
+        "DI",
+        "TEMPLATE_USES",
+        "ROUTE_TO"
+      ]
+    },
+    "IrRelation": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "sourceId",
+        "targetId"
+      ],
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "$ref": "#/$defs/IrRelationKind"
+        },
+        "sourceId": {
+          "type": "string"
+        },
+        "targetId": {
+          "type": "string"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stereotypes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrStereotype"
+          }
+        },
+        "taggedValues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/IrTaggedValue"
+          }
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/IrSourceRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
