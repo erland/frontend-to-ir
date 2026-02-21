@@ -6,6 +6,8 @@ import {
   IrClassifier,
   IrModel,
   IrRelation,
+  IrRelationKind,
+  IrTaggedValue,
   IrTypeRef,
   IrVisibility,
   IrClassifierKind,
@@ -22,6 +24,8 @@ export type TsExtractOptions = {
   includeTests?: boolean;
   /** Enable React conventions (components + RENDER edges). */
   react?: boolean;
+  /** Enable Angular conventions (decorators + DI/module edges). */
+  angular?: boolean;
 };
 
 type DeclaredSymbol = {
@@ -390,6 +394,16 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
     });
   }
 
+  if (opts.angular) {
+    enrichAngularModel({
+      program,
+      checker,
+      projectRoot,
+      scannedRel,
+      model,
+    });
+  }
+
   return canonicalizeIrModel(model);
 }
 
@@ -625,4 +639,211 @@ function functionLikeReturnsJsx(fn: ts.SignatureDeclarationBase, sf: ts.SourceFi
 
 function jsxTagNameToString(tag: ts.JsxTagNameExpression): string | null {
   return ts.isIdentifier(tag) ? tag.text : null;
+}
+
+type AngularEnrichContext = {
+  program: ts.Program;
+  checker: ts.TypeChecker;
+  projectRoot: string;
+  scannedRel: string[];
+  model: IrModel;
+};
+
+function enrichAngularModel(ctx: AngularEnrichContext) {
+  const { program, checker, projectRoot, scannedRel, model } = ctx;
+
+  const classifierByName = new Map<string, IrClassifier>();
+  for (const c of model.classifiers) classifierByName.set(c.name, c);
+
+  const hasStereotype = (c: IrClassifier, name: string) => (c.stereotypes ?? []).some((st) => st.name === name);
+  const addStereo = (c: IrClassifier, name: string) => {
+    c.stereotypes = c.stereotypes ?? [];
+    if (!hasStereotype(c, name)) c.stereotypes.push({ name });
+  };
+  const setTag = (c: IrClassifier, key: string, value: string) => {
+    c.taggedValues = c.taggedValues ?? [];
+    const existing = c.taggedValues.find((tv) => tv.key === key);
+    if (existing) existing.value = value;
+    else c.taggedValues.push({ key, value });
+  };
+
+  const existingKeys = new Set<string>();
+  for (const r of model.relations ?? []) {
+    const role = (r.taggedValues ?? []).find((tv) => tv.key === 'role')?.value ?? '';
+    existingKeys.add(`${r.kind}:${r.sourceId}:${r.targetId}:${role}`);
+  }
+
+  const addRelation = (
+    sf: ts.SourceFile,
+    kind: IrRelationKind,
+    fromId: string,
+    toId: string,
+    node: ts.Node,
+    tags: IrTaggedValue[],
+  ) => {
+    const role = tags.find((t) => t.key === 'role')?.value ?? '';
+    const key = `${kind}:${fromId}:${toId}:${role}`;
+    if (existingKeys.has(key)) return;
+    const relFile = toPosixPath(path.relative(projectRoot, sf.fileName));
+    const id = hashId('r:', `${kind}:${relFile}:${fromId}->${toId}:${role}:${node.pos}`);
+    (model.relations ?? (model.relations = [])).push({
+      id,
+      kind,
+      sourceId: fromId,
+      targetId: toId,
+      taggedValues: tags,
+      stereotypes: [],
+      source: sourceRefForNode(sf, node, projectRoot),
+    });
+    existingKeys.add(key);
+  };
+
+  const getDecorators = (node: ts.Node): ts.Decorator[] => {
+    const anyTs: any = ts as any;
+    if (typeof anyTs.getDecorators === 'function') return anyTs.getDecorators(node) ?? [];
+    return (node as any).decorators ?? [];
+  };
+
+  const decoratorCallName = (d: ts.Decorator, sf: ts.SourceFile): string | undefined => {
+    const expr = d.expression;
+    if (ts.isCallExpression(expr)) {
+      const callee = expr.expression;
+      if (ts.isIdentifier(callee)) return callee.text;
+      if (ts.isPropertyAccessExpression(callee)) return callee.name.text;
+      return callee.getText(sf);
+    }
+    if (ts.isIdentifier(expr)) return expr.text;
+    if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
+    return undefined;
+  };
+
+  const getDecoratorArgObject = (d: ts.Decorator): ts.ObjectLiteralExpression | undefined => {
+    const expr = d.expression;
+    if (!ts.isCallExpression(expr)) return undefined;
+    const arg0 = expr.arguments[0];
+    return arg0 && ts.isObjectLiteralExpression(arg0) ? arg0 : undefined;
+  };
+
+  const readStringProp = (obj: ts.ObjectLiteralExpression, name: string, sf: ts.SourceFile): string | undefined => {
+    for (const p of obj.properties) {
+      if (!ts.isPropertyAssignment(p)) continue;
+      const pn = ts.isIdentifier(p.name) ? p.name.text : ts.isStringLiteral(p.name) ? p.name.text : undefined;
+      if (pn !== name) continue;
+      const init = p.initializer;
+      if (ts.isStringLiteral(init) || ts.isNoSubstitutionTemplateLiteral(init)) return init.text;
+      return init.getText(sf);
+    }
+    return undefined;
+  };
+
+  const readArrayIdentifiers = (obj: ts.ObjectLiteralExpression, name: string): string[] => {
+    for (const p of obj.properties) {
+      if (!ts.isPropertyAssignment(p)) continue;
+      const pn = ts.isIdentifier(p.name) ? p.name.text : ts.isStringLiteral(p.name) ? p.name.text : undefined;
+      if (pn !== name) continue;
+      const init = p.initializer;
+      if (!ts.isArrayLiteralExpression(init)) return [];
+      const out: string[] = [];
+      for (const e of init.elements) {
+        if (ts.isIdentifier(e)) out.push(e.text);
+        else if (ts.isPropertyAccessExpression(e)) out.push(e.name.text);
+      }
+      return out;
+    }
+    return [];
+  };
+
+  const getTypeNameFromParam = (p: ts.ParameterDeclaration): string | undefined => {
+    const t = p.type ? checker.getTypeFromTypeNode(p.type) : checker.getTypeAtLocation(p);
+    const sym = t.getSymbol() ?? (t as any).aliasSymbol;
+    const n = sym?.getName();
+    return n && n !== '__type' ? n : undefined;
+  };
+
+  for (const sf of program.getSourceFiles()) {
+    if (sf.isDeclarationFile) continue;
+    const rel = toPosixPath(path.relative(projectRoot, sf.fileName));
+    if (!scannedRel.includes(rel)) continue;
+
+    const visit = (node: ts.Node) => {
+      if (ts.isClassDeclaration(node) && node.name?.text) {
+        const c = classifierByName.get(node.name.text);
+        if (!c) {
+          ts.forEachChild(node, visit);
+          return;
+        }
+
+        const decorators = getDecorators(node);
+        if (!decorators.length) {
+          ts.forEachChild(node, visit);
+          return;
+        }
+
+        const decNames = decorators.map((d) => decoratorCallName(d, sf)).filter(Boolean) as string[];
+        const isComponent = decNames.includes('Component');
+        const isInjectable = decNames.includes('Injectable');
+        const isNgModule = decNames.includes('NgModule');
+
+        if (isComponent || isInjectable || isNgModule) setTag(c, 'framework', 'angular');
+
+        if (isComponent) {
+          c.kind = 'COMPONENT';
+          addStereo(c, 'AngularComponent');
+          setTag(c, 'angular.decorator', 'Component');
+          const d = decorators.find((dd) => decoratorCallName(dd, sf) === 'Component');
+          const obj = d ? getDecoratorArgObject(d) : undefined;
+          if (obj) {
+            const selector = readStringProp(obj, 'selector', sf);
+            const templateUrl = readStringProp(obj, 'templateUrl', sf);
+            if (selector) setTag(c, 'angular.selector', selector);
+            if (templateUrl) setTag(c, 'angular.templateUrl', templateUrl);
+          }
+        }
+
+        if (isInjectable) {
+          c.kind = 'SERVICE';
+          addStereo(c, 'AngularInjectable');
+          setTag(c, 'angular.decorator', 'Injectable');
+        }
+
+        if (isNgModule) {
+          c.kind = 'MODULE';
+          addStereo(c, 'AngularNgModule');
+          setTag(c, 'angular.decorator', 'NgModule');
+          const d = decorators.find((dd) => decoratorCallName(dd, sf) === 'NgModule');
+          const obj = d ? getDecoratorArgObject(d) : undefined;
+          if (obj) {
+            for (const role of ['imports', 'providers', 'declarations'] as const) {
+              const names = readArrayIdentifiers(obj, role);
+              for (const nm of names) {
+                const to = classifierByName.get(nm);
+                if (to) {
+                  addRelation(sf, 'DEPENDENCY', c.id, to.id, node, [
+                    { key: 'origin', value: 'ngmodule' },
+                    { key: 'role', value: role },
+                  ]);
+                }
+              }
+            }
+          }
+        }
+
+        // DI edges for Component/Injectable
+        if (isComponent || isInjectable) {
+          const ctor = node.members.find((m) => ts.isConstructorDeclaration(m)) as ts.ConstructorDeclaration | undefined;
+          if (ctor) {
+            for (const p of ctor.parameters) {
+              const tn = getTypeNameFromParam(p);
+              if (!tn) continue;
+              const to = classifierByName.get(tn);
+              if (to) addRelation(sf, 'DI', c.id, to.id, p, [{ key: 'origin', value: 'constructor' }]);
+            }
+          }
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+
+    visit(sf);
+  }
 }
