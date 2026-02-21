@@ -17,6 +17,8 @@ export type ReportFindingKind =
   | 'unresolvedJsxComponent'
   | 'unresolvedContext'
   | 'unresolvedDecoratorRef'
+  | 'unresolvedRouteTarget'
+  | 'unresolvedLazyModule'
   | 'note';
 
 export type ReportFinding = {
