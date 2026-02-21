@@ -39,6 +39,16 @@ describe('Angular conventions (Step 6)', () => {
 export function Component(_meta: any) { return function (_ctor: any) {}; }
 export function Injectable(_meta?: any) { return function (_ctor: any) {}; }
 export function NgModule(_meta: any) { return function (_ctor: any) {}; }
+export function Input(_alias?: any) { return function (_proto: any, _name: any) {}; }
+export function Output(_alias?: any) { return function (_proto: any, _name: any) {}; }
+export class EventEmitter<T> { emit(_v: T): void {} }
+`,
+    );
+
+    writeFile(
+      path.join(dir, 'src', 'bar.ts'),
+      `
+export class Bar {}
 `,
     );
 
@@ -64,11 +74,15 @@ export class MyService {
     writeFile(
       path.join(dir, 'src', 'app.component.ts'),
       `
-import { Component } from './ng';
+import { Component, Input, Output, EventEmitter } from './ng';
 import { MyService } from './my.service';
+import { Bar } from './bar';
 
 @Component({ selector: 'app-root', templateUrl: './app.component.html' })
 export class AppComponent {
+  @Input() title!: string;
+  @Input('aliasFoo') foo!: MyService;
+  @Output() changed = new EventEmitter<Bar>();
   constructor(private svc: MyService) {}
 }
 `,
@@ -143,5 +157,28 @@ export class AppModule {}
     expect(dep('imports', 'CommonModule')).toBeTruthy();
     expect(dep('declarations', 'AppComponent')).toBeTruthy();
     expect(dep('providers', 'MyService')).toBeTruthy();
+
+    // Step 11: Inputs/Outputs
+    const attrs = app!.attributes ?? [];
+    const title = attrs.find((a) => a.name === 'title');
+    const foo = attrs.find((a) => a.name === 'foo');
+    const changed = attrs.find((a) => a.name === 'changed');
+    expect(title).toBeTruthy();
+    expect(foo).toBeTruthy();
+    expect(changed).toBeTruthy();
+
+    const tv = (aName: string) =>
+      attrs
+        .find((a) => a.name === aName)
+        ?.taggedValues?.reduce<Record<string, string>>((acc, t) => {
+          acc[t.key] = t.value;
+          return acc;
+        }, {}) ?? {};
+
+    expect(tv('title')['angular.role']).toBe('input');
+    expect(tv('foo')['angular.role']).toBe('input');
+    expect(tv('foo')['angular.inputAlias']).toBe('aliasFoo');
+    expect(tv('changed')['angular.role']).toBe('output');
+    expect(tv('changed')['angular.outputPayloadType']).toContain('Bar');
   });
 });
