@@ -4,7 +4,9 @@ import { scanSourceFiles } from '../../scan/sourceScanner';
 import {
   createEmptyIrModel,
   IrClassifier,
+  IrModel,
   IrRelation,
+  IrTypeRef,
   IrVisibility,
   IrClassifierKind,
   IrSourceRef,
@@ -18,6 +20,8 @@ export type TsExtractOptions = {
   tsconfigPath?: string;
   excludeGlobs?: string[];
   includeTests?: boolean;
+  /** Enable React conventions (components + RENDER edges). */
+  react?: boolean;
 };
 
 type DeclaredSymbol = {
@@ -154,13 +158,32 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
     };
 
     sf.forEachChild((node) => {
+      // Standard top-level declarations (class/interface/enum/type/function)
       const kind = classifierKindFromNode(node);
-      if (!kind) return;
-      const nm = (node as any).name?.text as string | undefined;
-      if (!nm) return;
-      const sym = checker.getSymbolAtLocation((node as any).name);
-      if (!sym) return;
-      addClassifier(node, nm, kind, sym);
+      if (kind) {
+        const nm = (node as any).name?.text as string | undefined;
+        if (!nm) return;
+        const sym = checker.getSymbolAtLocation((node as any).name);
+        if (!sym) return;
+        addClassifier(node, nm, kind, sym);
+        return;
+      }
+
+      // Also treat top-level const/let assignments of arrow/function expressions as FUNCTION classifiers.
+      // This makes the extractor resilient and lets React enrichment upgrade these to COMPONENT.
+      if (ts.isVariableStatement(node)) {
+        for (const d of node.declarationList.declarations) {
+          if (!ts.isIdentifier(d.name)) continue;
+          const init = d.initializer;
+          if (!init) continue;
+          if (!ts.isArrowFunction(init) && !ts.isFunctionExpression(init)) continue;
+
+          const nm = d.name.text;
+          const sym = checker.getSymbolAtLocation(d.name);
+          if (!sym) continue;
+          addClassifier(d, nm, 'FUNCTION', sym);
+        }
+      }
     });
   };
 
@@ -357,5 +380,249 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
   model.classifiers = Array.from(classifierById.values());
   model.relations = relations;
 
+  if (opts.react) {
+    enrichReactModel({
+      program,
+      checker,
+      projectRoot,
+      scannedRel,
+      model,
+    });
+  }
+
   return canonicalizeIrModel(model);
+}
+
+type ReactEnrichContext = {
+  program: ts.Program;
+  checker: ts.TypeChecker;
+  projectRoot: string;
+  scannedRel: string[];
+  model: IrModel;
+};
+
+function enrichReactModel(ctx: ReactEnrichContext) {
+  const { program, projectRoot, scannedRel, model } = ctx;
+
+  const classifierByFileAndName = new Map<string, IrClassifier>();
+  for (const c of model.classifiers) {
+    const file = c.source?.file;
+    if (!file) continue;
+    classifierByFileAndName.set(`${file}::${c.name}`, c);
+  }
+
+  const isPascalCase = (s: string) => /^[A-Z][A-Za-z0-9_]*$/.test(s);
+  const hasStereotype = (c: IrClassifier, name: string) => (c.stereotypes ?? []).some((st) => st.name === name);
+  const addStereo = (c: IrClassifier, name: string) => {
+    c.stereotypes = c.stereotypes ?? [];
+    if (!hasStereotype(c, name)) c.stereotypes.push({ name });
+  };
+  const setTag = (c: IrClassifier, key: string, value: string) => {
+    c.taggedValues = c.taggedValues ?? [];
+    const existing = c.taggedValues.find((tv) => tv.key === key);
+    if (existing) existing.value = value;
+    else c.taggedValues.push({ key, value });
+  };
+
+  const ensureComponentClassifier = (sf: ts.SourceFile, node: ts.Node, name: string): IrClassifier => {
+    const relFile = toPosixPath(path.relative(projectRoot, sf.fileName));
+    const key = `${relFile}::${name}`;
+    let c = classifierByFileAndName.get(key);
+
+    const pkgDir = toPosixPath(path.dirname(relFile));
+    const pkgKey = pkgDir === '.' ? '' : pkgDir;
+    const pkgId = hashId('pkg:', pkgKey === '' ? '(root)' : pkgKey);
+
+    if (!c) {
+      const qn = name;
+      const id = hashId('c:', `COMPONENT:${relFile}:${qn}`);
+      c = {
+        id,
+        name,
+        qualifiedName: qn,
+        packageId: pkgId,
+        kind: 'COMPONENT',
+        source: sourceRefForNode(sf, node, projectRoot),
+        attributes: [],
+        operations: [],
+        stereotypes: [],
+        taggedValues: [],
+      };
+      model.classifiers.push(c);
+      classifierByFileAndName.set(key, c);
+    }
+
+    c.kind = 'COMPONENT';
+    addStereo(c, 'ReactComponent');
+    setTag(c, 'framework', 'react');
+    return c;
+  };
+
+  // 1) Detect components
+  for (const sf of program.getSourceFiles()) {
+    if (sf.isDeclarationFile) continue;
+    const rel = toPosixPath(path.relative(projectRoot, sf.fileName));
+    if (!scannedRel.includes(rel)) continue;
+
+    const visit = (node: ts.Node) => {
+      // class Foo extends React.Component / Component
+      if (ts.isClassDeclaration(node) && node.name?.text && isPascalCase(node.name.text)) {
+        const extendsClause = (node.heritageClauses ?? []).find((h) => h.token === ts.SyntaxKind.ExtendsKeyword);
+        const t = extendsClause?.types?.[0];
+        if (t) {
+          const txt = t.expression.getText(sf);
+          if (txt === 'React.Component' || txt === 'Component' || txt.endsWith('.Component')) {
+            const c = ensureComponentClassifier(sf, node, node.name.text);
+            setTag(c, 'react.componentKind', 'class');
+          }
+        }
+      }
+
+      // function Foo() { return <div/> }
+      if (ts.isFunctionDeclaration(node) && node.name?.text && isPascalCase(node.name.text)) {
+        if (functionLikeReturnsJsx(node, sf)) {
+          const c = ensureComponentClassifier(sf, node, node.name.text);
+          setTag(c, 'react.componentKind', 'function');
+        }
+      }
+
+      // const Foo = () => <div/> or function() { return <div/> }
+      if (ts.isVariableStatement(node)) {
+        for (const d of node.declarationList.declarations) {
+          if (!ts.isIdentifier(d.name)) continue;
+          const nm = d.name.text;
+          if (!isPascalCase(nm)) continue;
+          const init = d.initializer;
+          if (!init) continue;
+          if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
+            if (functionLikeReturnsJsx(init, sf)) {
+              const c = ensureComponentClassifier(sf, d, nm);
+              setTag(c, 'react.componentKind', 'function');
+            }
+          }
+        }
+      }
+
+      ts.forEachChild(node, visit);
+    };
+
+    visit(sf);
+  }
+
+  const componentIdByName = new Map<string, string>();
+  for (const c of model.classifiers) {
+    if (c.kind === 'COMPONENT') componentIdByName.set(c.name, c.id);
+  }
+  if (!componentIdByName.size) return;
+
+  const existingKeys = new Set<string>();
+  for (const r of model.relations ?? []) existingKeys.add(`RENDER:${r.sourceId}:${r.targetId}`);
+
+  const addRender = (sf: ts.SourceFile, fromId: string, toId: string, node: ts.Node) => {
+    if (fromId === toId) return;
+    const key = `RENDER:${fromId}:${toId}`;
+    if (existingKeys.has(key)) return;
+    const relFile = toPosixPath(path.relative(projectRoot, sf.fileName));
+    const id = hashId('r:', `RENDER:${relFile}:${fromId}->${toId}:${node.pos}`);
+    (model.relations ?? (model.relations = [])).push({
+      id,
+      kind: 'RENDER',
+      sourceId: fromId,
+      targetId: toId,
+      taggedValues: [{ key: 'origin', value: 'jsx' }],
+      stereotypes: [],
+      source: sourceRefForNode(sf, node, projectRoot),
+    });
+    existingKeys.add(key);
+  };
+
+  const scanJsx = (sf: ts.SourceFile, root: ts.Node, ownerName: string) => {
+    const fromId = componentIdByName.get(ownerName);
+    if (!fromId) return;
+
+    const visit = (n: ts.Node) => {
+      if (ts.isJsxSelfClosingElement(n)) {
+        const tag = jsxTagNameToString(n.tagName);
+        const toId = tag ? componentIdByName.get(tag) : undefined;
+        if (toId) addRender(sf, fromId, toId, n);
+      } else if (ts.isJsxOpeningElement(n)) {
+        const tag = jsxTagNameToString(n.tagName);
+        const toId = tag ? componentIdByName.get(tag) : undefined;
+        if (toId) addRender(sf, fromId, toId, n);
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(root);
+  };
+
+  // 2) Add RENDER edges
+  for (const sf of program.getSourceFiles()) {
+    if (sf.isDeclarationFile) continue;
+    const rel = toPosixPath(path.relative(projectRoot, sf.fileName));
+    if (!scannedRel.includes(rel)) continue;
+
+    sf.forEachChild((node) => {
+      if (ts.isFunctionDeclaration(node) && node.name?.text && componentIdByName.has(node.name.text)) {
+        scanJsx(sf, node, node.name.text);
+      }
+      if (ts.isClassDeclaration(node) && node.name?.text && componentIdByName.has(node.name.text)) {
+        scanJsx(sf, node, node.name.text);
+      }
+      if (ts.isVariableStatement(node)) {
+        for (const d of node.declarationList.declarations) {
+          if (!ts.isIdentifier(d.name)) continue;
+          const nm = d.name.text;
+          const init = d.initializer;
+          if (!init) continue;
+          if ((ts.isArrowFunction(init) || ts.isFunctionExpression(init)) && componentIdByName.has(nm)) {
+            scanJsx(sf, init, nm);
+          }
+        }
+      }
+    });
+  }
+}
+
+function functionLikeReturnsJsx(fn: ts.SignatureDeclarationBase, sf: ts.SourceFile): boolean {
+  const anyFn: any = fn as any;
+
+  const unwrap = (expr: ts.Expression): ts.Expression => {
+    let e: ts.Expression = expr;
+    // ParenthesizedExpression exists in TS 5+; in older versions it's a syntax kind wrapper too.
+    // Use the public type guard when available.
+    while ((ts as any).isParenthesizedExpression?.(e) || e.kind === ts.SyntaxKind.ParenthesizedExpression) {
+      e = (e as any).expression as ts.Expression;
+      if (!e) break;
+    }
+    return e;
+  };
+
+  const isJsxExpr = (expr: ts.Expression): boolean => {
+    const e = unwrap(expr);
+    return ts.isJsxElement(e) || ts.isJsxSelfClosingElement(e) || ts.isJsxFragment(e);
+  };
+
+  // Expression-bodied arrow function
+  if (anyFn.body && ts.isExpression(anyFn.body) && isJsxExpr(anyFn.body)) {
+    return true;
+  }
+
+  const body = anyFn.body;
+  if (!body || !ts.isBlock(body)) return false;
+
+  let found = false;
+  const visit = (n: ts.Node) => {
+    if (found) return;
+    if (ts.isReturnStatement(n) && n.expression && isJsxExpr(n.expression)) {
+      found = true;
+      return;
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(body);
+  return found;
+}
+
+function jsxTagNameToString(tag: ts.JsxTagNameExpression): string | null {
+  return ts.isIdentifier(tag) ? tag.text : null;
 }

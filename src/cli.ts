@@ -81,6 +81,34 @@ program
       );
     }
   });
+
+program
+  .command('extract-react')
+  .description('Extract TypeScript + React conventions (components + RENDER edges) into IR v1 JSON')
+  .requiredOption('-p, --project <path>', 'Project root directory')
+  .requiredOption('-o, --out <file>', 'Output IR JSON file')
+  .option('--tsconfig <file>', 'Path to tsconfig.json (relative to project root)', 'tsconfig.json')
+  .option('--exclude <glob...>', 'Exclude glob(s). Repeat or pass multiple.', [])
+  .option('--include-tests', 'Include tests (__tests__, *.test.*, *.spec.*)', false)
+  .option('-v, --verbose', 'Verbose logging', false)
+  .action(async (opts: ExtractTsOptions) => {
+    const model = await extractTypeScriptStructuralModel({
+      projectRoot: opts.project,
+      tsconfigPath: opts.tsconfig,
+      excludeGlobs: opts.exclude ?? [],
+      includeTests: Boolean(opts.includeTests),
+      react: true,
+    });
+
+    await writeIrJsonFile(opts.out, model);
+
+    if (opts.verbose) {
+      // eslint-disable-next-line no-console
+      console.log(
+        `Extracted ${model.classifiers.length} classifier(s), ${model.relations?.length ?? 0} relation(s). Wrote: ${opts.out}`,
+      );
+    }
+  });
   await program.parseAsync(argv);
 
   return Number(process.exitCode ?? 0);
