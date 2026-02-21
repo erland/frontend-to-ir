@@ -7,6 +7,8 @@ export type SourceScanOptions = {
   excludeGlobs?: string[];
   /** When false, common test locations/patterns are excluded. */
   includeTests?: boolean;
+  /** Optional safety cap; if set, results are truncated deterministically after sorting. */
+  maxFiles?: number;
 };
 
 const DEFAULT_EXCLUDES = [
@@ -67,6 +69,11 @@ export async function scanSourceFiles(opts: SourceScanOptions): Promise<string[]
 
   // fast-glob usually returns posix paths even on Windows, but normalize anyway
   const rel = matches.map((p) => toPosix(p));
+  
   rel.sort((a, b) => a.localeCompare(b));
+  if (opts.maxFiles && opts.maxFiles > 0 && rel.length > opts.maxFiles) {
+    return rel.slice(0, opts.maxFiles);
+  }
   return rel;
+
 }

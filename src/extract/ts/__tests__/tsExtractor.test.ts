@@ -61,8 +61,8 @@ export class A extends B {
 `,
     );
 
-    const model1 = await extractTypeScriptStructuralModel({ projectRoot: dir });
-    const model2 = await extractTypeScriptStructuralModel({ projectRoot: dir });
+    const model1 = await extractTypeScriptStructuralModel({ projectRoot: dir, includeDeps: true });
+    const model2 = await extractTypeScriptStructuralModel({ projectRoot: dir, includeDeps: true });
 
     expect(model1.schemaVersion).toBe('1.0');
     expect(model1.classifiers.length).toBeGreaterThanOrEqual(3);

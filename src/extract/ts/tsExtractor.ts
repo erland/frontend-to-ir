@@ -24,6 +24,13 @@ export type TsExtractOptions = {
   tsconfigPath?: string;
   excludeGlobs?: string[];
   includeTests?: boolean;
+  /** Optional safety cap; if set, results are truncated deterministically after sorting. */
+  maxFiles?: number;
+
+/** Include dependency relations (type deps + import graph edges) when enabled by CLI. */
+includeDeps?: boolean;
+/** Include framework-specific edges (React RENDER, Angular DI/NgModule) when enabled by CLI. */
+includeFrameworkEdges?: boolean;
   /** Enable React conventions (components + RENDER edges). */
   react?: boolean;
   /** Enable Angular conventions (decorators + DI/module edges). */
@@ -105,7 +112,12 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
   const excludeGlobs = opts.excludeGlobs ?? [];
   const includeTests = !!opts.includeTests;
 
-  const scannedRel = await scanSourceFiles({ sourceRoot: projectRoot, excludeGlobs, includeTests });
+  const scannedRel = await scanSourceFiles({
+    sourceRoot: projectRoot,
+    excludeGlobs,
+    includeTests,
+    maxFiles: opts.maxFiles,
+  });
   const scannedAbs = scannedRel.map((r) => path.resolve(projectRoot, r));
 
   if (opts.report) {
@@ -264,6 +276,7 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
     name?: string | null,
     src?: IrSourceRef | null,
   ) => {
+    if (kind === 'DEPENDENCY' && !opts.includeDeps) return;
     const rid = hashId('r:', `${kind}:${sourceId}->${targetId}:${name ?? ''}`);
     relations.push({ id: rid, kind, sourceId, targetId, name: name ?? null, source: src ?? null });
   };
@@ -449,6 +462,7 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
       scannedRel,
       model,
       report: opts.report,
+      includeFrameworkEdges: opts.includeFrameworkEdges,
     });
   }
 
@@ -700,10 +714,11 @@ type ReactEnrichContext = {
   scannedRel: string[];
   model: IrModel;
   report?: ExtractionReport;
+  includeFrameworkEdges?: boolean;
 };
 
 function enrichReactModel(ctx: ReactEnrichContext) {
-  const { program, projectRoot, scannedRel, model, report } = ctx;
+  const { program, projectRoot, scannedRel, model, report, includeFrameworkEdges } = ctx;
 
   const classifierByFileAndName = new Map<string, IrClassifier>();
   for (const c of model.classifiers) {
@@ -820,6 +835,7 @@ function enrichReactModel(ctx: ReactEnrichContext) {
   for (const r of model.relations ?? []) existingKeys.add(`RENDER:${r.sourceId}:${r.targetId}`);
 
   const addRender = (sf: ts.SourceFile, fromId: string, toId: string, node: ts.Node) => {
+    if (includeFrameworkEdges === false) return;
     if (fromId === toId) return;
     const key = `RENDER:${fromId}:${toId}`;
     if (existingKeys.has(key)) return;
@@ -953,10 +969,11 @@ type AngularEnrichContext = {
   scannedRel: string[];
   model: IrModel;
   report?: ExtractionReport;
+  includeFrameworkEdges?: boolean;
 };
 
 function enrichAngularModel(ctx: AngularEnrichContext) {
-  const { program, checker, projectRoot, scannedRel, model, report } = ctx;
+  const { program, checker, projectRoot, scannedRel, model, report, includeFrameworkEdges } = ctx;
 
   const classifierByName = new Map<string, IrClassifier>();
   for (const c of model.classifiers) classifierByName.set(c.name, c);
@@ -987,6 +1004,7 @@ function enrichAngularModel(ctx: AngularEnrichContext) {
     node: ts.Node,
     tags: IrTaggedValue[],
   ) => {
+    if (includeFrameworkEdges === false) return;
     const role = tags.find((t) => t.key === 'role')?.value ?? '';
     const key = `${kind}:${fromId}:${toId}:${role}`;
     if (existingKeys.has(key)) return;

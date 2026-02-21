@@ -1,5 +1,5 @@
 export type CliArgs = {
-  project?: string;
+  source?: string;
   out?: string;
   verbose: boolean;
 };
@@ -12,7 +12,7 @@ export function parseCliArgs(argv: string[]): CliArgs {
   const out: CliArgs = { verbose: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--project' || a === '-p') out.project = argv[++i];
+    if (a === '--source' || a === '-s' || a === '--project' || a === '-p') out.source = argv[++i];
     else if (a === '--out' || a === '-o') out.out = argv[++i];
     else if (a === '--verbose' || a === '-v') out.verbose = true;
   }

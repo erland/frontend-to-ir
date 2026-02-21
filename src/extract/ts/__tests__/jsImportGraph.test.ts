@@ -50,6 +50,7 @@ describe('JavaScript support (Step 7)', () => {
       includeTests: true,
       forceAllowJs: true,
       importGraph: true,
+      includeDeps: true,
     });
 
     const fileMods = model.classifiers.filter(

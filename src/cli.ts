@@ -8,259 +8,184 @@ import { writeIrJsonFile } from './ir/writeIrJson';
 import { createEmptyReport, finalizeReport } from './report/extractionReport';
 import { writeReportFile } from './report/writeReport';
 
-type ExtractTsOptions = {
-  project: string;
+function parseBoolish(v: unknown, defaultValue: boolean): boolean {
+  if (v === undefined || v === null) return defaultValue;
+  if (typeof v === 'boolean') return v;
+  const s = String(v).trim().toLowerCase();
+  if (s === '') return true; // presence of option with no value
+  if (['1', 'true', 'yes', 'y', 'on'].includes(s)) return true;
+  if (['0', 'false', 'no', 'n', 'off'].includes(s)) return false;
+  return defaultValue;
+}
+
+function parseIntish(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  const n = Number(v);
+  if (!Number.isFinite(n)) return undefined;
+  return Math.trunc(n);
+}
+
+type FrameworkMode = 'auto' | 'react' | 'angular' | 'none';
+
+type ExtractSpecOptions = {
+  source: string;
   out: string;
-  tsconfig?: string;
-  exclude?: string[];
-  includeTests?: boolean;
-  verbose?: boolean;
+  framework: FrameworkMode;
+  exclude: string[];
+  includeTests: boolean;
+  includeDeps: boolean;
+  includeFrameworkEdges: boolean;
   report?: string;
+  failOnUnresolved: boolean;
+  maxFiles?: number;
+  tsconfig?: string;
+  verbose: boolean;
 };
 
-type ScanOptions = {
-  project: string;
-  out: string;
-  exclude?: string[];
-  includeTests?: boolean;
-  verbose?: boolean;
-};
+async function runExtract(opts: ExtractSpecOptions): Promise<number> {
+  const report = opts.report
+    ? createEmptyReport({ toolName: 'frontend-to-ir', toolVersion: VERSION, projectRoot: opts.source })
+    : undefined;
 
-type ExtractMode = 'ts' | 'react' | 'angular' | 'js';
+  const reactEnabled = (opts.framework === 'auto' || opts.framework === 'react') && opts.includeFrameworkEdges;
+  const angularEnabled = (opts.framework === 'auto' || opts.framework === 'angular') && opts.includeFrameworkEdges;
 
-type ExtractUnifiedOptions = ExtractTsOptions & { mode?: ExtractMode };
+  const model = await extractTypeScriptStructuralModel({
+    projectRoot: opts.source,
+    tsconfigPath: opts.tsconfig,
+    excludeGlobs: opts.exclude,
+    includeTests: opts.includeTests,
+    react: reactEnabled || (opts.framework === 'react' && !opts.includeFrameworkEdges), // allow component marking even if edges disabled
+    angular: angularEnabled || (opts.framework === 'angular' && !opts.includeFrameworkEdges),
+    forceAllowJs: true, // Step 7: allow JS best-effort in all modes
+    importGraph: opts.includeDeps, // import graph is "deps" per spec
+    includeDeps: opts.includeDeps,
+    includeFrameworkEdges: opts.includeFrameworkEdges,
+    maxFiles: opts.maxFiles,
+    report,
+  });
+
+  await writeIrJsonFile(opts.out, model);
+
+  let unresolvedCount = 0;
+  if (report && opts.report) {
+    const final = finalizeReport(report);
+    unresolvedCount = final.findings.filter((f) => f.kind.startsWith('unresolved')).length;
+    await writeReportFile(opts.report, final, 'md');
+  }
+
+  if (opts.verbose) {
+    // eslint-disable-next-line no-console
+    console.log(
+      `Extracted ${model.classifiers.length} classifier(s), ${model.relations?.length ?? 0} relation(s). Wrote: ${opts.out}`,
+    );
+    if (opts.report) {
+      // eslint-disable-next-line no-console
+      console.log(`Wrote report: ${opts.report} (unresolved: ${unresolvedCount})`);
+    }
+  }
+
+  if (opts.failOnUnresolved && unresolvedCount > 0) return 3;
+  return 0;
+}
 
 async function main(argv: string[]): Promise<number> {
   const program = new Command();
 
   program
     .name('frontend-to-ir')
-    .description('Convert frontend source code (TS/JS + frameworks) into IR v1 for java-to-xmi')
-    .version(VERSION);
+    .description('Convert TS/JS (optionally React/Angular) source code into IR v1 for java-to-xmi')
+    .version(VERSION)
+    // Spec-aligned options
+    .requiredOption('--source <path>', 'Root directory to analyze', undefined)
+    .requiredOption('--out <file>', 'Output IR JSON file path', undefined)
+    .option('--framework <mode>', 'auto|react|angular|none', 'auto')
+    .option('--exclude <glob...>', 'Repeatable exclude globs (relative to --source)', [])
+    .option('--include-tests [bool]', 'Include tests (default false)', (v) => v, undefined)
+    .option('--include-deps [bool]', 'Include dependency relations beyond structural associations (default false)', (v) => v, undefined)
+    .option(
+      '--include-framework-edges [bool]',
+      'Include React RENDER / Angular DI/module edges (default true)',
+      (v) => v,
+      undefined,
+    )
+    .option('--report <file>', 'Optional Markdown report path', '')
+    .option('--fail-on-unresolved [bool]', 'Exit nonzero if unresolved symbols > 0 (default false)', (v) => v, undefined)
+    .option('--max-files <n>', 'Safety cap for huge repos (default no cap)', (v) => v, undefined)
+    .option('--tsconfig <path>', 'Explicit tsconfig.json selection (overrides auto)', '')
+    .option('-v, --verbose', 'Verbose logging', false);
 
+  // Keep scan command as a utility (not in spec but helpful)
   program
     .command('scan')
-    .description('Scan a project folder and emit a deterministic file inventory JSON (Step 3).')
-    .requiredOption('-p, --project <path>', 'Project root folder to scan')
-    .requiredOption('-o, --out <file>', 'Output JSON file')
-    .option('-x, --exclude <glob...>', 'Additional exclude glob(s). Repeat or pass multiple.', [])
-    .option('--include-tests', 'Include tests (__tests__, *.test.*, *.spec.*)', false)
+    .description('Scan a project folder and emit a deterministic file inventory JSON.')
+    .requiredOption('--source <path>', 'Root directory to scan')
+    .requiredOption('--out <file>', 'Output JSON file')
+    .option('--exclude <glob...>', 'Additional exclude glob(s).', [])
+    .option('--include-tests [bool]', 'Include tests (default false)', (v) => v, undefined)
+    .option('--max-files <n>', 'Safety cap (default no cap)', (v) => v, undefined)
     .option('-v, --verbose', 'Verbose logging', false)
-    .action(async (opts: ScanOptions) => {
+    .action(async (raw: any) => {
+      const includeTests = parseBoolish(raw.includeTests, false);
+      const maxFiles = parseIntish(raw.maxFiles);
       const inv = await buildFileInventory({
-        sourceRoot: opts.project,
-        excludeGlobs: opts.exclude ?? [],
-        includeTests: Boolean(opts.includeTests),
+        sourceRoot: raw.source,
+        excludeGlobs: raw.exclude ?? [],
+        includeTests,
+        maxFiles,
       });
-
-      await writeFileInventoryFile(opts.out, inv);
-
-      if (opts.verbose) {
+      await writeFileInventoryFile(raw.out, inv);
+      if (raw.verbose) {
         // eslint-disable-next-line no-console
-        console.log(`Scanned ${inv.files.length} source file(s). Wrote: ${opts.out}`);
+        console.log(`Scanned ${inv.files.length} source file(s). Wrote: ${raw.out}`);
       }
     });
 
-  program
-    .command('extract')
-    .description('Extract IR v1 with a single command (choose mode: ts|react|angular|js).')
-    .requiredOption('-p, --project <path>', 'Project root directory')
-    .requiredOption('-o, --out <file>', 'Output IR JSON file')
-    .option('-m, --mode <mode>', 'Extraction mode: ts|react|angular|js', 'ts')
-    .option('--tsconfig <file>', 'Path to tsconfig.json (relative to project root)', 'tsconfig.json')
-    .option('--exclude <glob...>', 'Exclude glob(s). Repeat or pass multiple.', [])
-    .option('--include-tests', 'Include tests (__tests__, *.test.*, *.spec.*)', false)
-    .option('--report <file>', 'Write an extraction report JSON (Step 8)', '')
-    .option('-v, --verbose', 'Verbose logging', false)
-    .action(async (opts: ExtractUnifiedOptions) => {
-      const mode = (opts.mode ?? 'ts') as ExtractMode;
-      const report = opts.report
-        ? createEmptyReport({ toolName: 'frontend-to-ir', toolVersion: VERSION, projectRoot: opts.project })
-        : undefined;
-
-      const model = await extractTypeScriptStructuralModel({
-        projectRoot: opts.project,
-        tsconfigPath: opts.tsconfig,
-        excludeGlobs: opts.exclude ?? [],
-        includeTests: Boolean(opts.includeTests),
-        react: mode === 'react',
-        angular: mode === 'angular',
-        forceAllowJs: mode === 'js',
-        importGraph: mode === 'js',
-        report,
-      });
-
-      await writeIrJsonFile(opts.out, model);
-      if (report && opts.report) {
-        await writeReportFile(opts.report, finalizeReport(report));
-      }
-
-      if (opts.verbose) {
+  // Default action (spec expects no subcommand)
+  program.action(async (raw: any) => {
+    if (!raw.source || !raw.out) {
         // eslint-disable-next-line no-console
-        console.log(
-          `Extracted ${model.classifiers.length} classifier(s), ${model.relations?.length ?? 0} relation(s). Wrote: ${opts.out}`,
-        );
-        if (report && opts.report) {
-          // eslint-disable-next-line no-console
-          console.log(`Wrote report: ${opts.report} (findings: ${report.findings.length})`);
-        }
+        console.error('Missing required options: --source <path> and --out <file>');
+        process.exitCode = 1;
+        return;
       }
-    });
+      const framework = (String(raw.framework ?? 'auto').toLowerCase() as FrameworkMode) || 'auto';
+    const includeTests = parseBoolish(raw.includeTests, false);
+    const includeDeps = parseBoolish(raw.includeDeps, false);
+    const includeFrameworkEdges = parseBoolish(raw.includeFrameworkEdges, true);
+    const failOnUnresolved = parseBoolish(raw.failOnUnresolved, false);
+    const maxFiles = parseIntish(raw.maxFiles);
+    const tsconfig = raw.tsconfig && String(raw.tsconfig).trim() !== '' ? String(raw.tsconfig) : undefined;
+    const report = raw.report && String(raw.report).trim() !== '' ? String(raw.report) : undefined;
 
-
-program
-  .command('extract-ts')
-  .description('Extract TypeScript structural model into IR v1 JSON')
-  .requiredOption('-p, --project <path>', 'Project root directory')
-  .requiredOption('-o, --out <file>', 'Output IR JSON file')
-  .option('--tsconfig <file>', 'Path to tsconfig.json (relative to project root)', 'tsconfig.json')
-  .option('--exclude <glob...>', 'Exclude glob(s). Repeat or pass multiple.', [])
-  .option('--include-tests', 'Include tests (__tests__, *.test.*, *.spec.*)', false)
-  .option('-v, --verbose', 'Verbose logging', false)
-  .option('--report <file>', 'Write an extraction report JSON (Step 8)', '')
-  .action(async (opts: ExtractTsOptions) => {
-    const report = opts.report
-      ? createEmptyReport({ toolName: 'frontend-to-ir', toolVersion: VERSION, projectRoot: opts.project })
-      : undefined;
-    const model = await extractTypeScriptStructuralModel({
-      projectRoot: opts.project,
-      tsconfigPath: opts.tsconfig,
-      excludeGlobs: opts.exclude ?? [],
-      includeTests: Boolean(opts.includeTests),
+    const exitCode = await runExtract({
+      source: raw.source,
+      out: raw.out,
+      framework,
+      exclude: raw.exclude ?? [],
+      includeTests,
+      includeDeps,
+      includeFrameworkEdges,
       report,
+      failOnUnresolved,
+      maxFiles,
+      tsconfig,
+      verbose: Boolean(raw.verbose),
     });
-
-    await writeIrJsonFile(opts.out, model);
-
-    if (report && opts.report) {
-      await writeReportFile(opts.report, finalizeReport(report));
-    }
-
-    if (opts.verbose) {
-      // eslint-disable-next-line no-console
-      console.log(
-        `Extracted ${model.classifiers.length} classifier(s), ${model.relations?.length ?? 0} relation(s). Wrote: ${opts.out}`,
-      );
-    }
+    process.exitCode = exitCode;
   });
 
-program
-  .command('extract-react')
-  .description('Extract TypeScript + React conventions (components + RENDER edges) into IR v1 JSON')
-  .requiredOption('-p, --project <path>', 'Project root directory')
-  .requiredOption('-o, --out <file>', 'Output IR JSON file')
-  .option('--tsconfig <file>', 'Path to tsconfig.json (relative to project root)', 'tsconfig.json')
-  .option('--exclude <glob...>', 'Exclude glob(s). Repeat or pass multiple.', [])
-  .option('--include-tests', 'Include tests (__tests__, *.test.*, *.spec.*)', false)
-  .option('-v, --verbose', 'Verbose logging', false)
-  .option('--report <file>', 'Write an extraction report JSON (Step 8)', '')
-  .action(async (opts: ExtractTsOptions) => {
-    const report = opts.report
-      ? createEmptyReport({ toolName: 'frontend-to-ir', toolVersion: VERSION, projectRoot: opts.project })
-      : undefined;
-    const model = await extractTypeScriptStructuralModel({
-      projectRoot: opts.project,
-      tsconfigPath: opts.tsconfig,
-      excludeGlobs: opts.exclude ?? [],
-      includeTests: Boolean(opts.includeTests),
-      react: true,
-      report,
-    });
-
-    await writeIrJsonFile(opts.out, model);
-
-    if (report && opts.report) {
-      await writeReportFile(opts.report, finalizeReport(report));
-    }
-
-    if (opts.verbose) {
-      // eslint-disable-next-line no-console
-      console.log(
-        `Extracted ${model.classifiers.length} classifier(s), ${model.relations?.length ?? 0} relation(s). Wrote: ${opts.out}`,
-      );
-    }
-  });
-
-program
-  .command('extract-angular')
-  .description('Extract TypeScript + Angular conventions (decorators + DI/module edges) into IR v1 JSON')
-  .requiredOption('-p, --project <path>', 'Project root directory')
-  .requiredOption('-o, --out <file>', 'Output IR JSON file')
-  .option('--tsconfig <file>', 'Path to tsconfig.json (relative to project root)', 'tsconfig.json')
-  .option('--exclude <glob...>', 'Exclude glob(s). Repeat or pass multiple.', [])
-  .option('--include-tests', 'Include tests (__tests__, *.test.*, *.spec.*)', false)
-  .option('-v, --verbose', 'Verbose logging', false)
-  .option('--report <file>', 'Write an extraction report JSON (Step 8)', '')
-  .action(async (opts: ExtractTsOptions) => {
-    const report = opts.report
-      ? createEmptyReport({ toolName: 'frontend-to-ir', toolVersion: VERSION, projectRoot: opts.project })
-      : undefined;
-    const model = await extractTypeScriptStructuralModel({
-      projectRoot: opts.project,
-      tsconfigPath: opts.tsconfig,
-      excludeGlobs: opts.exclude ?? [],
-      includeTests: Boolean(opts.includeTests),
-      angular: true,
-      report,
-    });
-
-    await writeIrJsonFile(opts.out, model);
-
-    if (report && opts.report) {
-      await writeReportFile(opts.report, finalizeReport(report));
-    }
-
-    if (opts.verbose) {
-      // eslint-disable-next-line no-console
-      console.log(
-        `Extracted ${model.classifiers.length} classifier(s), ${model.relations?.length ?? 0} relation(s). Wrote: ${opts.out}`,
-      );
-    }
-  });
-
-program
-  .command('extract-js')
-  .description('Extract JavaScript (allowJs) + import graph (best-effort) into IR v1 JSON')
-  .requiredOption('-p, --project <path>', 'Project root directory')
-  .requiredOption('-o, --out <file>', 'Output IR JSON file')
-  .option('--tsconfig <file>', 'Path to tsconfig.json (relative to project root)', 'tsconfig.json')
-  .option('--exclude <glob...>', 'Exclude glob(s). Repeat or pass multiple.', [])
-  .option('--include-tests', 'Include tests (__tests__, *.test.*, *.spec.*)', false)
-  .option('-v, --verbose', 'Verbose logging', false)
-  .option('--report <file>', 'Write an extraction report JSON (Step 8)', '')
-  .action(async (opts: ExtractTsOptions) => {
-    const report = opts.report
-      ? createEmptyReport({ toolName: 'frontend-to-ir', toolVersion: VERSION, projectRoot: opts.project })
-      : undefined;
-    const model = await extractTypeScriptStructuralModel({
-      projectRoot: opts.project,
-      tsconfigPath: opts.tsconfig,
-      excludeGlobs: opts.exclude ?? [],
-      includeTests: Boolean(opts.includeTests),
-      forceAllowJs: true,
-      importGraph: true,
-      report,
-    });
-
-    await writeIrJsonFile(opts.out, model);
-
-    if (report && opts.report) {
-      await writeReportFile(opts.report, finalizeReport(report));
-    }
-
-    if (opts.verbose) {
-      // eslint-disable-next-line no-console
-      console.log(
-        `Extracted ${model.classifiers.length} classifier(s), ${model.relations?.length ?? 0} relation(s). Wrote: ${opts.out}`,
-      );
-    }
-  });
-  await program.parseAsync(argv);
-
-  return Number(process.exitCode ?? 0);
+  try {
+    await program.parseAsync(argv);
+    return Number(process.exitCode ?? 0);
+  } catch (e: any) {
+    // eslint-disable-next-line no-console
+    console.error(e?.message ?? String(e));
+    return 2;
+  }
 }
 
-// Only run when invoked as a CLI.
-// (Jest can import functions without executing main.)
 // eslint-disable-next-line @typescript-eslint/no-floating-promises
-main(process.argv);
+main(process.argv).then((code) => {
+  process.exitCode = code;
+});
