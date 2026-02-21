@@ -1,0 +1,32 @@
+{
+  "name": "frontend-to-ir",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Convert frontend source code (TS/JS + frameworks) into an IR that can be consumed by java-to-xmi.",
+  "license": "MIT",
+  "main": "dist/index.js",
+  "bin": {
+    "frontend-to-ir": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && node scripts/postbuild.cjs",
+    "dev": "node -r ts-node/register src/cli.ts --help",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^22.13.5",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  }
+}
