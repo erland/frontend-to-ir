@@ -1,16 +1,14 @@
-import ts from 'typescript';
 import path from 'node:path';
 import { scanSourceFiles } from '../../scan/sourceScanner';
-import { IrClassifier, IrTypeRef } from '../../ir/irV1';
 import { enrichReactModel } from './react/reactEnricher';
 import { enrichAngularModel } from './angular/angularEnricher';
 import { canonicalizeIrModel } from '../../ir/canonicalizeIrModel';
 import type { ExtractionReport } from '../../report/extractionReport';
-import { addFinding, incCount } from '../../report/reportBuilder';
 import { extractImportGraphRelations } from './imports/importGraph';
 import { extractStructuralModel } from './structural/structuralExtractor';
 import { createProgramFromScan } from './program/createProgram';
 import type { ExtractorContext } from './context';
+import { postProcessReportFromModel } from './report/postProcessReport';
 
 export type TsExtractOptions = {
   projectRoot: string;
@@ -110,101 +108,7 @@ const { program, checker, compilerOptions } = createProgramFromScan({
   }
 
   // Step 8: populate report counts + unresolved tracking.
-  if (opts.report) {
-    for (const c of model.classifiers) incCount(opts.report.counts.classifiersByKind, c.kind);
-    for (const r of model.relations ?? []) incCount(opts.report.counts.relationsByKind, r.kind);
-
-    const classifierByName = new Map<string, IrClassifier>();
-    for (const c of model.classifiers) classifierByName.set(c.name, c);
-
-    const isBuiltin = (name: string) =>
-      [
-        'string',
-        'number',
-        'boolean',
-        'bigint',
-        'void',
-        'never',
-        'any',
-        'unknown',
-        'Array',
-        'ReadonlyArray',
-        'Promise',
-        'Record',
-        'Map',
-        'Set',
-        'Date',
-        'RegExp',
-        'Error',
-        'Function',
-        'Object',
-        'String',
-        'Number',
-        'Boolean',
-      ].includes(name);
-
-    const collectNamed = (tr: IrTypeRef | null | undefined, out: Set<string>) => {
-      if (!tr) return;
-      if (tr.kind === 'NAMED') {
-        if (tr.name) out.add(tr.name);
-        return;
-      }
-      if (tr.kind === 'GENERIC') {
-        if (tr.name) out.add(tr.name);
-        (tr.typeArgs ?? []).forEach((a) => collectNamed(a, out));
-        return;
-      }
-      if (tr.kind === 'ARRAY') {
-        collectNamed(tr.elementType, out);
-        return;
-      }
-      if (tr.kind === 'UNION' || tr.kind === 'INTERSECTION') {
-        (tr.typeArgs ?? []).forEach((a) => collectNamed(a, out));
-      }
-    };
-
-    for (const c of model.classifiers) {
-      const locFile = c.source?.file;
-      const line = c.source?.line ?? undefined;
-      const col = (c.source as any)?.col ?? undefined;
-      const baseLoc = locFile ? { file: locFile, line: line === null ? undefined : line, column: col } : undefined;
-
-      for (const a of c.attributes ?? []) {
-        const names = new Set<string>();
-        collectNamed(a.type, names);
-        for (const nm of names) {
-          if (isBuiltin(nm)) continue;
-          if (!classifierByName.has(nm)) {
-            addFinding(opts.report, {
-              kind: 'unresolvedType',
-              severity: 'warning',
-              message: `Unresolved attribute type '${nm}' on ${c.name}.${a.name}`,
-              location: baseLoc,
-              tags: { owner: c.name, member: a.name, role: 'attribute', type: nm },
-            });
-          }
-        }
-      }
-
-      for (const op of c.operations ?? []) {
-        const names = new Set<string>();
-        collectNamed(op.returnType, names);
-        for (const p of op.parameters ?? []) collectNamed(p.type, names);
-        for (const nm of names) {
-          if (isBuiltin(nm)) continue;
-          if (!classifierByName.has(nm)) {
-            addFinding(opts.report, {
-              kind: 'unresolvedType',
-              severity: 'warning',
-              message: `Unresolved operation type '${nm}' on ${c.name}.${op.name}()` ,
-              location: baseLoc,
-              tags: { owner: c.name, member: op.name, role: 'operation', type: nm },
-            });
-          }
-        }
-      }
-    }
-  }
+  if (opts.report) postProcessReportFromModel(model, opts.report);
 
   return canonicalizeIrModel(model);
 }
