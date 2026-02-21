@@ -727,6 +727,8 @@ function enrichReactModel(ctx: ReactEnrichContext) {
     classifierByFileAndName.set(`${file}::${c.name}`, c);
   }
 
+  const checker = program.getTypeChecker();
+
   const isPascalCase = (s: string) => /^[A-Z][A-Za-z0-9_]*$/.test(s);
   const hasStereotype = (c: IrClassifier, name: string) => (c.stereotypes ?? []).some((st) => st.name === name);
   const addStereo = (c: IrClassifier, name: string) => {
@@ -740,6 +742,54 @@ function enrichReactModel(ctx: ReactEnrichContext) {
     else c.taggedValues.push({ key, value });
   };
 
+
+const upsertAttr = (c: IrClassifier, name: string, type: IrTypeRef, role: 'props' | 'state') => {
+  c.attributes = c.attributes ?? [];
+  let a = c.attributes.find((x) => x.name === name);
+  if (!a) {
+    a = { name, type, taggedValues: [] };
+    c.attributes.push(a);
+  } else {
+    a.type = type;
+  }
+  a.taggedValues = a.taggedValues ?? [];
+  const existing = a.taggedValues.find((tv) => tv.key === 'react.role');
+  if (existing) existing.value = role;
+  else a.taggedValues.push({ key: 'react.role', value: role });
+};
+
+const applyReactPropsState = (
+  c: IrClassifier,
+  sf: ts.SourceFile,
+  propsTypeNode?: ts.TypeNode | null,
+  stateTypeNode?: ts.TypeNode | null,
+) => {
+  if (propsTypeNode) {
+    const propsType = typeNodeToIrTypeRef(propsTypeNode, checker);
+    upsertAttr(c, 'props', propsType, 'props');
+    setTag(c, 'react.propsType', propsTypeNode.getText(sf));
+  }
+  if (stateTypeNode) {
+    const stateType = typeNodeToIrTypeRef(stateTypeNode, checker);
+    upsertAttr(c, 'state', stateType, 'state');
+    setTag(c, 'react.stateType', stateTypeNode.getText(sf));
+  }
+};
+
+const isReactFctype = (tn: ts.TypeNode, sf: ts.SourceFile): ts.TypeNode | null => {
+  if (!ts.isTypeReferenceNode(tn)) return null;
+  const typeName = tn.typeName.getText(sf);
+  const isFc =
+    typeName === 'React.FC' ||
+    typeName === 'FC' ||
+    typeName === 'React.FunctionComponent' ||
+    typeName === 'FunctionComponent' ||
+    typeName.endsWith('.FC') ||
+    typeName.endsWith('.FunctionComponent');
+  if (!isFc) return null;
+  const args = tn.typeArguments ?? [];
+  return args.length >= 1 ? args[0] : null;
+};
   const ensureComponentClassifier = (sf: ts.SourceFile, node: ts.Node, name: string): IrClassifier => {
     const relFile = toPosixPath(path.relative(projectRoot, sf.fileName));
     const key = `${relFile}::${name}`;
@@ -790,6 +840,7 @@ function enrichReactModel(ctx: ReactEnrichContext) {
           if (txt === 'React.Component' || txt === 'Component' || txt.endsWith('.Component')) {
             const c = ensureComponentClassifier(sf, node, node.name.text);
             setTag(c, 'react.componentKind', 'class');
+            applyReactPropsState(c, sf, t.typeArguments?.[0] ?? null, t.typeArguments?.[1] ?? null);
           }
         }
       }
@@ -799,6 +850,7 @@ function enrichReactModel(ctx: ReactEnrichContext) {
         if (functionLikeReturnsJsx(node, sf)) {
           const c = ensureComponentClassifier(sf, node, node.name.text);
           setTag(c, 'react.componentKind', 'function');
+          applyReactPropsState(c, sf, node.parameters[0]?.type ?? null, null);
         }
       }
 
@@ -814,6 +866,11 @@ function enrichReactModel(ctx: ReactEnrichContext) {
             if (functionLikeReturnsJsx(init, sf)) {
               const c = ensureComponentClassifier(sf, d, nm);
               setTag(c, 'react.componentKind', 'function');
+              applyReactPropsState(c, sf, init.parameters[0]?.type ?? null, null);
+              if (d.type) {
+                const fcArg = isReactFctype(d.type, sf);
+                if (fcArg) applyReactPropsState(c, sf, fcArg, null);
+              }
             }
           }
         }
