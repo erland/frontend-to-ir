@@ -23,6 +23,7 @@ import type { ExtractionReport } from '../../report/extractionReport';
 import { addFinding, incCount } from '../../report/reportBuilder';
 import { extractImportGraphRelations } from './imports/importGraph';
 import { extractStructuralModel } from './structural/structuralExtractor';
+import { createProgramFromScan } from './program/createProgram';
 
 export type TsExtractOptions = {
   projectRoot: string;
@@ -66,35 +67,14 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
     opts.report.filesProcessed = 0; // updated after program created
   }
 
-  // Respect tsconfig options if present (but we still control rootNames via scanner)
-  const configPath = opts.tsconfigPath
-    ? path.resolve(projectRoot, opts.tsconfigPath)
-    : ts.findConfigFile(projectRoot, ts.sys.fileExists, 'tsconfig.json');
 
-  let compilerOptions: ts.CompilerOptions = { allowJs: true, checkJs: false, noEmit: true };
-  if (configPath && ts.sys.fileExists(configPath)) {
-    const read = ts.readConfigFile(configPath, ts.sys.readFile);
-    if (!read.error) {
-      const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, path.dirname(configPath));
-      if (!parsed.errors?.length) compilerOptions = { ...parsed.options, noEmit: true };
-    }
-  }
+const { program, checker, compilerOptions } = createProgramFromScan({
+  projectRoot,
+  rootNamesAbs: scannedAbs,
+  tsconfigPath: opts.tsconfigPath,
+  forceAllowJs: opts.forceAllowJs,
+});
 
-  // Step 7: ensure JavaScript can be analyzed even if tsconfig disables it.
-  if (opts.forceAllowJs) {
-    compilerOptions = {
-      ...compilerOptions,
-      allowJs: true,
-      checkJs: false,
-      noEmit: true,
-    };
-  }
-
-  const program = ts.createProgram({
-    rootNames: scannedAbs,
-    options: compilerOptions,
-  });
-  const checker = program.getTypeChecker();
 
   if (opts.report) {
     // program.getSourceFiles includes lib files; count only our scanned set.
