@@ -42,8 +42,10 @@ type ExtractSpecOptions = {
   verbose: boolean;
 };
 
-async function runExtract(opts: ExtractSpecOptions): Promise<number> {
-  const report = opts.report
+export async function runExtract(opts: ExtractSpecOptions): Promise<number> {
+  // Create a report object whenever we need unresolved tracking (either to write a report file
+  // or to enforce --fail-on-unresolved).
+  const report = opts.report || opts.failOnUnresolved
     ? createEmptyReport({ toolName: 'frontend-to-ir', toolVersion: VERSION, projectRoot: opts.source })
     : undefined;
 
@@ -68,10 +70,10 @@ async function runExtract(opts: ExtractSpecOptions): Promise<number> {
   await writeIrJsonFile(opts.out, model);
 
   let unresolvedCount = 0;
-  if (report && opts.report) {
+  if (report) {
     const final = finalizeReport(report);
     unresolvedCount = final.findings.filter((f) => f.kind.startsWith('unresolved')).length;
-    await writeReportFile(opts.report, final, 'md');
+    if (opts.report) await writeReportFile(opts.report, final, 'md');
   }
 
   if (opts.verbose) {
@@ -185,7 +187,11 @@ async function main(argv: string[]): Promise<number> {
   }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-floating-promises
-main(process.argv).then((code) => {
-  process.exitCode = code;
-});
+// Run CLI only when executed directly (not when imported in tests)
+// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+if (require.main === module) {
+  // eslint-disable-next-line @typescript-eslint/no-floating-promises
+  main(process.argv).then((code) => {
+    process.exitCode = code;
+  });
+}
