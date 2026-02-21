@@ -15,6 +15,7 @@ export type ReportFindingKind =
   | 'unresolvedType'
   | 'unresolvedImport'
   | 'unresolvedJsxComponent'
+  | 'unresolvedContext'
   | 'unresolvedDecoratorRef'
   | 'note';
 

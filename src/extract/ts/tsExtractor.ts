@@ -742,6 +742,45 @@ function enrichReactModel(ctx: ReactEnrichContext) {
     else c.taggedValues.push({ key, value });
   };
 
+  // React Context helpers
+  const hasContextStereo = (c: IrClassifier) => (c.stereotypes ?? []).some((st) => st.name === 'ReactContext');
+  const ensureContextClassifier = (sf: ts.SourceFile, node: ts.Node, name: string, typeNode?: ts.TypeNode | null) => {
+    const relFile = toPosixPath(path.relative(projectRoot, sf.fileName));
+    const pkgDir = toPosixPath(path.dirname(relFile));
+    const pkgKey = pkgDir === '.' ? '' : pkgDir;
+    const pkgId = hashId('pkg:', pkgKey === '' ? '(root)' : pkgKey);
+
+    const key = `${relFile}::${name}`;
+    let c = classifierByFileAndName.get(key);
+    if (!c) {
+      const existing = model.classifiers.filter((x) => x.name === name && hasContextStereo(x));
+      if (existing.length === 1) c = existing[0];
+    }
+
+    if (!c) {
+      const id = hashId('c:', `REACT_CONTEXT:${relFile}:${name}`);
+      c = {
+        id,
+        name,
+        qualifiedName: name,
+        packageId: pkgId,
+        kind: 'SERVICE',
+        source: sourceRefForNode(sf, node, projectRoot),
+        attributes: [],
+        operations: [],
+        stereotypes: [],
+        taggedValues: [],
+      };
+      model.classifiers.push(c);
+      classifierByFileAndName.set(key, c);
+    }
+
+    c.kind = 'SERVICE';
+    addStereo(c, 'ReactContext');
+    setTag(c, 'framework', 'react');
+    if (typeNode) setTag(c, 'react.contextType', typeNode.getText(sf));
+    return c;
+  };
 
 const upsertAttr = (c: IrClassifier, name: string, type: IrTypeRef, role: 'props' | 'state') => {
   c.attributes = c.attributes ?? [];
@@ -831,6 +870,27 @@ const isReactFctype = (tn: ts.TypeNode, sf: ts.SourceFile): ts.TypeNode | null =
     if (!scannedRel.includes(rel)) continue;
 
     const visit = (node: ts.Node) => {
+      // const Ctx = React.createContext<T>(...) / createContext<T>(...)
+      if (ts.isVariableStatement(node)) {
+        for (const d of node.declarationList.declarations) {
+          if (!ts.isIdentifier(d.name)) continue;
+          const nm = d.name.text;
+          const init = d.initializer;
+          if (!init || !ts.isCallExpression(init)) continue;
+
+          const callee = init.expression;
+          const calleeName = ts.isIdentifier(callee)
+            ? callee.text
+            : ts.isPropertyAccessExpression(callee)
+              ? callee.name.text
+              : undefined;
+
+          if (calleeName !== 'createContext') continue;
+          const typeArg = init.typeArguments?.[0] ?? null;
+          ensureContextClassifier(sf, d, nm, typeArg);
+        }
+      }
+
       // class Foo extends React.Component / Component
       if (ts.isClassDeclaration(node) && node.name?.text && isPascalCase(node.name.text)) {
         const extendsClause = (node.heritageClauses ?? []).find((h) => h.token === ts.SyntaxKind.ExtendsKeyword);
@@ -888,8 +948,40 @@ const isReactFctype = (tn: ts.TypeNode, sf: ts.SourceFile): ts.TypeNode | null =
   }
   if (!componentIdByName.size) return;
 
+  const contextIdByName = new Map<string, string>();
+  for (const c of model.classifiers) {
+    if (hasContextStereo(c)) contextIdByName.set(c.name, c.id);
+  }
+
   const existingKeys = new Set<string>();
   for (const r of model.relations ?? []) existingKeys.add(`RENDER:${r.sourceId}:${r.targetId}`);
+
+  const existingDiKeys = new Set<string>();
+  for (const r of model.relations ?? []) {
+    if (r.kind === 'DI') {
+      const origin = (r.taggedValues ?? []).find((tv) => tv.key === 'origin')?.value ?? '';
+      existingDiKeys.add(`DI:${r.sourceId}:${r.targetId}:${origin}`);
+    }
+  }
+
+  const addDi = (sf: ts.SourceFile, fromId: string, toId: string, node: ts.Node, origin: string) => {
+    if (includeFrameworkEdges === false) return;
+    if (fromId === toId) return;
+    const key = `DI:${fromId}:${toId}:${origin}`;
+    if (existingDiKeys.has(key)) return;
+    const relFile = toPosixPath(path.relative(projectRoot, sf.fileName));
+    const id = hashId('r:', `DI:${relFile}:${fromId}->${toId}:${origin}:${node.pos}`);
+    (model.relations ?? (model.relations = [])).push({
+      id,
+      kind: 'DI',
+      sourceId: fromId,
+      targetId: toId,
+      taggedValues: [{ key: 'origin', value: origin }],
+      stereotypes: [],
+      source: sourceRefForNode(sf, node, projectRoot),
+    });
+    existingDiKeys.add(key);
+  };
 
   const addRender = (sf: ts.SourceFile, fromId: string, toId: string, node: ts.Node) => {
     if (includeFrameworkEdges === false) return;
@@ -928,6 +1020,25 @@ const isReactFctype = (tn: ts.TypeNode, sf: ts.SourceFile): ts.TypeNode | null =
             tags: { owner: ownerName, tag },
           });
         }
+
+        // <Ctx.Provider />
+        if (ts.isPropertyAccessExpression(n.tagName) && n.tagName.name.text === 'Provider') {
+          const ctxExpr = n.tagName.expression;
+          if (ts.isIdentifier(ctxExpr)) {
+            const ctxName = ctxExpr.text;
+            const ctxId = contextIdByName.get(ctxName);
+            if (ctxId) addDi(sf, fromId, ctxId, n, 'provider');
+            else if (report) {
+              addFinding(report, {
+                kind: 'unresolvedContext',
+                severity: 'warning',
+                message: `JSX Provider for '${ctxName}' but no matching context classifier was found`,
+                location: { file: toPosixPath(path.relative(projectRoot, sf.fileName)) },
+                tags: { owner: ownerName, context: ctxName, origin: 'provider' },
+              });
+            }
+          }
+        }
       } else if (ts.isJsxOpeningElement(n)) {
         const tag = jsxTagNameToString(n.tagName);
         const toId = tag ? componentIdByName.get(tag) : undefined;
@@ -941,9 +1052,70 @@ const isReactFctype = (tn: ts.TypeNode, sf: ts.SourceFile): ts.TypeNode | null =
             tags: { owner: ownerName, tag },
           });
         }
+
+        // <Ctx.Provider>
+        if (ts.isPropertyAccessExpression(n.tagName) && n.tagName.name.text === 'Provider') {
+          const ctxExpr = n.tagName.expression;
+          if (ts.isIdentifier(ctxExpr)) {
+            const ctxName = ctxExpr.text;
+            const ctxId = contextIdByName.get(ctxName);
+            if (ctxId) addDi(sf, fromId, ctxId, n, 'provider');
+            else if (report) {
+              addFinding(report, {
+                kind: 'unresolvedContext',
+                severity: 'warning',
+                message: `JSX Provider for '${ctxName}' but no matching context classifier was found`,
+                location: { file: toPosixPath(path.relative(projectRoot, sf.fileName)) },
+                tags: { owner: ownerName, context: ctxName, origin: 'provider' },
+              });
+            }
+          }
+        }
       }
       ts.forEachChild(n, visit);
     };
+    visit(root);
+  };
+
+  const scanUseContext = (sf: ts.SourceFile, root: ts.Node, ownerName: string) => {
+    const fromId = componentIdByName.get(ownerName);
+    if (!fromId) return;
+
+    const visit = (n: ts.Node) => {
+      if (ts.isCallExpression(n)) {
+        const callee = n.expression;
+        const calleeName = ts.isIdentifier(callee)
+          ? callee.text
+          : ts.isPropertyAccessExpression(callee)
+            ? callee.name.text
+            : undefined;
+
+        if (calleeName === 'useContext') {
+          const arg0 = n.arguments[0];
+          if (arg0) {
+            let ctxName: string | undefined;
+            if (ts.isIdentifier(arg0)) ctxName = arg0.text;
+            else if (ts.isPropertyAccessExpression(arg0)) ctxName = arg0.name.text;
+
+            if (ctxName) {
+              const ctxId = contextIdByName.get(ctxName);
+              if (ctxId) addDi(sf, fromId, ctxId, n, 'useContext');
+              else if (report) {
+                addFinding(report, {
+                  kind: 'unresolvedContext',
+                  severity: 'warning',
+                  message: `useContext('${ctxName}') but no matching context classifier was found`,
+                  location: { file: toPosixPath(path.relative(projectRoot, sf.fileName)) },
+                  tags: { owner: ownerName, context: ctxName, origin: 'useContext' },
+                });
+              }
+            }
+          }
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+
     visit(root);
   };
 
@@ -956,9 +1128,11 @@ const isReactFctype = (tn: ts.TypeNode, sf: ts.SourceFile): ts.TypeNode | null =
     sf.forEachChild((node) => {
       if (ts.isFunctionDeclaration(node) && node.name?.text && componentIdByName.has(node.name.text)) {
         scanJsx(sf, node, node.name.text);
+        scanUseContext(sf, node, node.name.text);
       }
       if (ts.isClassDeclaration(node) && node.name?.text && componentIdByName.has(node.name.text)) {
         scanJsx(sf, node, node.name.text);
+        scanUseContext(sf, node, node.name.text);
       }
       if (ts.isVariableStatement(node)) {
         for (const d of node.declarationList.declarations) {
@@ -968,6 +1142,7 @@ const isReactFctype = (tn: ts.TypeNode, sf: ts.SourceFile): ts.TypeNode | null =
           if (!init) continue;
           if ((ts.isArrowFunction(init) || ts.isFunctionExpression(init)) && componentIdByName.has(nm)) {
             scanJsx(sf, init, nm);
+            scanUseContext(sf, init, nm);
           }
         }
       }

@@ -161,4 +161,80 @@ export class Cls extends React.Component<Props, State> {
     expect(attr(cls, 'state')).toBeTruthy();
   });
 
+  test('models React contexts and adds DI edges for useContext and Provider', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'f2ir-step10-'));
+
+    writeFile(
+      path.join(dir, 'tsconfig.json'),
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: 'ES2020',
+            module: 'ESNext',
+            strict: true,
+            noEmit: true,
+            jsx: 'react-jsx',
+          },
+          include: ['src/**/*'],
+        },
+        null,
+        2,
+      ),
+    );
+
+    writeFile(
+      path.join(dir, 'src', 'ctx.tsx'),
+      `
+import React, { createContext, useContext } from 'react';
+
+export type Ctx = { userId: string };
+export const UserContext = createContext<Ctx>({ userId: '' });
+
+export function Consumer() {
+  const ctx = useContext(UserContext);
+  return <div>{ctx.userId}</div>;
+}
+
+export function Provider() {
+  return (
+    <UserContext.Provider value={{ userId: '1' }}>
+      <Consumer />
+    </UserContext.Provider>
+  );
+}
+`,
+    );
+
+    const model = await extractTypeScriptStructuralModel({ projectRoot: dir, react: true, includeFrameworkEdges: true });
+
+    const ctxClassifier = model.classifiers.find((c) => c.name === 'UserContext');
+    expect(ctxClassifier).toBeTruthy();
+    expect(ctxClassifier!.kind).toBe('SERVICE');
+    expect(ctxClassifier!.stereotypes?.map((s) => s.name)).toEqual(expect.arrayContaining(['ReactContext']));
+    const tv = (c: any, k: string) => (c.taggedValues ?? []).find((x: any) => x.key === k)?.value;
+    expect(tv(ctxClassifier, 'react.contextType')).toContain('Ctx');
+
+    const consumer = model.classifiers.find((c) => c.name === 'Consumer')!;
+    const provider = model.classifiers.find((c) => c.name === 'Provider')!;
+    expect(consumer.kind).toBe('COMPONENT');
+    expect(provider.kind).toBe('COMPONENT');
+
+    const di = (model.relations ?? []).filter((r) => r.kind === 'DI');
+    const hasUseContext = di.some(
+      (r) =>
+        r.sourceId === consumer.id &&
+        r.targetId === ctxClassifier!.id &&
+        (r.taggedValues ?? []).some((t) => t.key === 'origin' && t.value === 'useContext'),
+    );
+    const hasProvider = di.some(
+      (r) =>
+        r.sourceId === provider.id &&
+        r.targetId === ctxClassifier!.id &&
+        (r.taggedValues ?? []).some((t) => t.key === 'origin' && t.value === 'provider'),
+    );
+
+    expect(hasUseContext).toBe(true);
+    expect(hasProvider).toBe(true);
+  });
+
 });

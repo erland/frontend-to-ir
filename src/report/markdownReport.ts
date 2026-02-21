@@ -73,7 +73,7 @@ export function reportToMarkdown(report: ExtractionReport): string {
   if (unresolved.length > 0) {
     lines.push(`## Top unresolved`);
     lines.push('');
-    for (const kind of ['unresolvedType', 'unresolvedImport', 'unresolvedJsxComponent', 'unresolvedDecoratorRef']) {
+    for (const kind of ['unresolvedType', 'unresolvedImport', 'unresolvedJsxComponent', 'unresolvedContext', 'unresolvedDecoratorRef']) {
       const top = topMessages(unresolved, kind, 20);
       if (top.length === 0) continue;
       lines.push(`### ${kind}`);
