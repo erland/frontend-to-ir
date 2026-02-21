@@ -26,6 +26,10 @@ export type TsExtractOptions = {
   react?: boolean;
   /** Enable Angular conventions (decorators + DI/module edges). */
   angular?: boolean;
+  /** Force allowJs/checkJs settings regardless of tsconfig (Step 7 JavaScript support). */
+  forceAllowJs?: boolean;
+  /** Emit module classifiers + file-level import dependency edges. */
+  importGraph?: boolean;
 };
 
 type DeclaredSymbol = {
@@ -114,6 +118,16 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
     }
   }
 
+  // Step 7: ensure JavaScript can be analyzed even if tsconfig disables it.
+  if (opts.forceAllowJs) {
+    compilerOptions = {
+      ...compilerOptions,
+      allowJs: true,
+      checkJs: false,
+      noEmit: true,
+    };
+  }
+
   const program = ts.createProgram({
     rootNames: scannedAbs,
     options: compilerOptions,
@@ -135,12 +149,41 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
   const declared = new Map<ts.Symbol, DeclaredSymbol>();
   const classifierById = new Map<string, IrClassifier>();
 
+  // Optional module classifier per file, used for import graph extraction.
+  const moduleByRelFile = new Map<string, IrClassifier>();
+
+  const ensureFileModule = (relFile: string, pkgId: string) => {
+    let mod = moduleByRelFile.get(relFile);
+    if (mod) return mod;
+    const name = path.posix.basename(relFile);
+    const id = hashId('m:', relFile);
+    mod = {
+      id,
+      name,
+      qualifiedName: relFile,
+      packageId: pkgId,
+      kind: 'MODULE',
+      attributes: [],
+      operations: [],
+      stereotypes: [{ name: 'SourceFile' }],
+      taggedValues: [{ key: 'source.file', value: relFile }],
+      source: { file: relFile, line: 1, col: 1 },
+    };
+    moduleByRelFile.set(relFile, mod);
+    classifierById.set(id, mod);
+    return mod;
+  };
+
   const declareInSourceFile = (sf: ts.SourceFile) => {
     const relFile = toPosixPath(path.relative(projectRoot, sf.fileName));
     const pkgDir = toPosixPath(path.dirname(relFile));
     const pkgKey = pkgDir === '.' ? '' : pkgDir;
     const pkg = pkgByDir.get(pkgKey) ?? pkgByDir.get('')!;
     const prefix = pkg.qualifiedName ? `${pkg.qualifiedName}` : null;
+
+    if (opts.importGraph) {
+      ensureFileModule(relFile, pkg.id);
+    }
 
     const addClassifier = (node: ts.Node, name: string, kind: IrClassifierKind, sym: ts.Symbol) => {
       const qn = prefix ? `${prefix}.${name}` : name;
@@ -404,7 +447,117 @@ export async function extractTypeScriptStructuralModel(opts: TsExtractOptions) {
     });
   }
 
+  if (opts.importGraph) {
+    const extra = extractImportGraphRelations({
+      program,
+      compilerOptions,
+      projectRoot,
+      scannedRel,
+      ensureFileModule: (relFile: string, pkgId: string) => ensureFileModule(relFile, pkgId),
+      pkgByDir,
+    });
+    model.relations = [...(model.relations ?? []), ...extra];
+    // module classifiers were already inserted into classifierById via ensureFileModule.
+    model.classifiers = Array.from(classifierById.values());
+  }
+
   return canonicalizeIrModel(model);
+}
+
+type ImportGraphContext = {
+  program: ts.Program;
+  compilerOptions: ts.CompilerOptions;
+  projectRoot: string;
+  scannedRel: string[];
+  pkgByDir: Map<string, { id: string; name: string; qualifiedName: string | null; parentId: string | null }>;
+  ensureFileModule: (relFile: string, pkgId: string) => IrClassifier;
+};
+
+function extractImportGraphRelations(ctx: ImportGraphContext): IrRelation[] {
+  const { program, compilerOptions, projectRoot, scannedRel, pkgByDir, ensureFileModule } = ctx;
+
+  const toRelIfInProject = (abs: string) => {
+    const rel = toPosixPath(path.relative(projectRoot, abs));
+    return scannedRel.includes(rel) ? rel : null;
+  };
+
+  const resolveToRel = (specifier: string, fromAbs: string): string | null => {
+    const resolved = ts.resolveModuleName(specifier, fromAbs, compilerOptions, ts.sys).resolvedModule;
+    if (!resolved?.resolvedFileName) return null;
+    const rf = resolved.resolvedFileName;
+    if (rf.endsWith('.d.ts')) return null;
+    // TypeScript may resolve to a TS file even when importing from JS; that's OK.
+    return toRelIfInProject(rf);
+  };
+
+  const ensurePkgIdForRel = (relFile: string) => {
+    const pkgDir = toPosixPath(path.dirname(relFile));
+    const pkgKey = pkgDir === '.' ? '' : pkgDir;
+    const pkg = pkgByDir.get(pkgKey) ?? pkgByDir.get('')!;
+    return pkg.id;
+  };
+
+  const rels: IrRelation[] = [];
+  const seen = new Set<string>();
+
+  const addDep = (
+    fromSf: ts.SourceFile,
+    fromRel: string,
+    toRel: string,
+    origin: 'import' | 'require',
+    spec: string,
+    node: ts.Node
+  ) => {
+    const fromMod = ensureFileModule(fromRel, ensurePkgIdForRel(fromRel));
+    const toMod = ensureFileModule(toRel, ensurePkgIdForRel(toRel));
+    const key = `${origin}:${fromRel}->${toRel}:${spec}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const id = hashId('r:', key);
+    rels.push({
+      id,
+      kind: 'DEPENDENCY',
+      sourceId: fromMod.id,
+      targetId: toMod.id,
+      taggedValues: [
+        { key: 'origin', value: origin },
+        { key: 'specifier', value: spec },
+      ],
+      source: sourceRefForNode(fromSf, node, projectRoot),
+    });
+  };
+
+  for (const sf of program.getSourceFiles()) {
+    if (sf.isDeclarationFile) continue;
+    const fromRel = toPosixPath(path.relative(projectRoot, sf.fileName));
+    if (!scannedRel.includes(fromRel)) continue;
+
+    const visit = (n: ts.Node) => {
+      // ES import/export from
+      if ((ts.isImportDeclaration(n) || ts.isExportDeclaration(n)) && (n as any).moduleSpecifier) {
+        const ms = (n as any).moduleSpecifier;
+        if (ts.isStringLiteral(ms)) {
+          const spec = ms.text;
+          const toRel = resolveToRel(spec, sf.fileName);
+          if (toRel) addDep(sf, fromRel, toRel, 'import', spec, n);
+        }
+      }
+
+      // CommonJS require('x')
+      if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'require') {
+        const arg0 = n.arguments[0];
+        if (arg0 && ts.isStringLiteral(arg0)) {
+          const spec = arg0.text;
+          const toRel = resolveToRel(spec, sf.fileName);
+          if (toRel) addDep(sf, fromRel, toRel, 'require', spec, n);
+        }
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+  }
+
+  return rels;
 }
 
 type ReactEnrichContext = {
