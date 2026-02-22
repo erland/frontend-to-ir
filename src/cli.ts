@@ -3,10 +3,9 @@
 import { Command } from 'commander';
 import { VERSION } from './index';
 import { buildFileInventory, writeFileInventoryFile } from './scan/inventory';
-import { extractTypeScriptStructuralModel } from './extract/ts/tsExtractor';
 import { writeIrJsonFile } from './ir/writeIrJson';
-import { createEmptyReport, finalizeReport } from './report/extractionReport';
 import { writeReportFile } from './report/writeReport';
+import { generateIrFromProject, type FrameworkMode } from './core/generateIrFromProject';
 
 function parseBoolish(v: unknown, defaultValue: boolean): boolean {
   if (v === undefined || v === null) return defaultValue;
@@ -25,8 +24,6 @@ function parseIntish(v: unknown): number | undefined {
   return Math.trunc(n);
 }
 
-type FrameworkMode = 'auto' | 'react' | 'angular' | 'none';
-
 type ExtractSpecOptions = {
   source: string;
   out: string;
@@ -43,37 +40,22 @@ type ExtractSpecOptions = {
 };
 
 export async function runExtract(opts: ExtractSpecOptions): Promise<number> {
-  // Create a report object whenever we need unresolved tracking (either to write a report file
-  // or to enforce --fail-on-unresolved).
-  const report = opts.report || opts.failOnUnresolved
-    ? createEmptyReport({ toolName: 'frontend-to-ir', toolVersion: VERSION, projectRoot: opts.source })
-    : undefined;
-
-  const reactEnabled = (opts.framework === 'auto' || opts.framework === 'react') && opts.includeFrameworkEdges;
-  const angularEnabled = (opts.framework === 'auto' || opts.framework === 'angular') && opts.includeFrameworkEdges;
-
-  const model = await extractTypeScriptStructuralModel({
+  const { model, report, unresolvedCount } = await generateIrFromProject({
     projectRoot: opts.source,
     tsconfigPath: opts.tsconfig,
     excludeGlobs: opts.exclude,
     includeTests: opts.includeTests,
-    react: reactEnabled || (opts.framework === 'react' && !opts.includeFrameworkEdges), // allow component marking even if edges disabled
-    angular: angularEnabled || (opts.framework === 'angular' && !opts.includeFrameworkEdges),
-    forceAllowJs: true, // Step 7: allow JS best-effort in all modes
-    importGraph: opts.includeDeps, // import graph is "deps" per spec
+    maxFiles: opts.maxFiles,
     includeDeps: opts.includeDeps,
     includeFrameworkEdges: opts.includeFrameworkEdges,
-    maxFiles: opts.maxFiles,
-    report,
+    framework: opts.framework,
+    trackUnresolved: Boolean(opts.report || opts.failOnUnresolved),
   });
 
   await writeIrJsonFile(opts.out, model);
 
-  let unresolvedCount = 0;
-  if (report) {
-    const final = finalizeReport(report);
-    unresolvedCount = final.findings.filter((f) => f.kind.startsWith('unresolved')).length;
-    if (opts.report) await writeReportFile(opts.report, final, 'md');
+  if (report && opts.report) {
+    await writeReportFile(opts.report, report, 'md');
   }
 
   if (opts.verbose) {

@@ -9,6 +9,9 @@ export * from './ir/deterministicJson';
 export * from './scan/sourceScanner';
 export * from './scan/inventory';
 
+// Core API (server-friendly)
+export * from './core/generateIrFromProject';
+
 export * from './extract/ts/tsExtractor';
 
 export * from './report/extractionReport';
