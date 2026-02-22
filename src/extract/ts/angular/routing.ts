@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { safeNodeText } from '../util/safeText';
 import type { IrModel, IrClassifier, IrTaggedValue, IrRelationKind } from '../../../ir/irV1';
 import type { ExtractionReport } from '../../../report/extractionReport';
 import { addFinding } from '../../../report/reportBuilder';
@@ -197,7 +198,7 @@ export function extractAngularRoutesFromSourceFile(args: {
         for (const d of node.declarationList.declarations) {
           if (!ts.isIdentifier(d.name) || !d.initializer || !ts.isArrayLiteralExpression(d.initializer)) continue;
           const varName = d.name.text;
-          const typeText = d.type ? d.type.getText(sf) : '';
+          const typeText = safeNodeText(d.type, sf);
           if (varName.toLowerCase().includes('route') || typeText.includes('Routes')) {
             parseRoutesArray(d.initializer, d);
           }

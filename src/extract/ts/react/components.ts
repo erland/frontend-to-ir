@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { safeNodeText } from '../util/safeText';
 import path from 'node:path';
 import type { IrClassifier } from '../../../ir/irV1';
 import { hashId } from '../../../util/id';
@@ -47,7 +48,7 @@ function markOwner(ownerByNode: Map<ts.Node, string>, root: ts.Node, ownerName: 
 }
 
 function isReactComponentBase(heritage: ts.ExpressionWithTypeArguments, sf: ts.SourceFile): { props?: ts.TypeNode; state?: ts.TypeNode } | null {
-  const exprText = heritage.expression.getText(sf);
+  const exprText = safeNodeText(heritage.expression, sf);
   const isBase = exprText === 'React.Component' || exprText === 'Component' || exprText === 'React.PureComponent' || exprText === 'PureComponent';
   if (!isBase) return null;
   const args = heritage.typeArguments ?? [];

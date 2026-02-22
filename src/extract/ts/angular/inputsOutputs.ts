@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { safeNodeText } from '../util/safeText';
 import type { IrClassifier, IrAttribute, IrTypeRef, IrTaggedValue, IrRelationKind } from '../../../ir/irV1';
 import type { ExtractionReport } from '../../../report/extractionReport';
 import { addFinding } from '../../../report/reportBuilder';
@@ -58,14 +59,14 @@ export function extractInputsOutputs(args: {
       const tr = anyMember.type as ts.TypeReferenceNode;
       const tn = tr.typeName;
       const nm = ts.isIdentifier(tn) ? tn.text : ts.isQualifiedName(tn) ? tn.right.text : undefined;
-      if (nm === 'EventEmitter' && tr.typeArguments?.length) return tr.typeArguments[0].getText(sf);
+      if (nm === 'EventEmitter' && tr.typeArguments?.length) return safeNodeText(tr.typeArguments[0], sf);
     }
     // Or initializer: new EventEmitter<T>()
     if (ts.isPropertyDeclaration(member) && member.initializer && ts.isNewExpression(member.initializer)) {
       const ne = member.initializer;
       const ex = ne.expression;
       const nm = ts.isIdentifier(ex) ? ex.text : undefined;
-      if (nm === 'EventEmitter' && ne.typeArguments?.length) return ne.typeArguments[0].getText(sf);
+      if (nm === 'EventEmitter' && ne.typeArguments?.length) return safeNodeText(ne.typeArguments[0], sf);
     }
     return undefined;
   };

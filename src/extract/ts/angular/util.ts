@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { safeNodeText } from '../util/safeText';
 import path from 'node:path';
 import type { IrSourceRef } from '../../../ir/irV1';
 
@@ -24,7 +25,7 @@ export function decoratorCallName(d: ts.Decorator, sf: ts.SourceFile): string | 
     const callee = expr.expression;
     if (ts.isIdentifier(callee)) return callee.text;
     if (ts.isPropertyAccessExpression(callee)) return callee.name.text;
-    return callee.getText(sf);
+    return safeNodeText(callee, sf);
   }
   if (ts.isIdentifier(expr)) return expr.text;
   if (ts.isPropertyAccessExpression(expr)) return expr.name.text;
@@ -45,7 +46,7 @@ export function readStringProp(obj: ts.ObjectLiteralExpression, name: string, sf
     if (pn !== name) continue;
     const init = p.initializer;
     if (ts.isStringLiteral(init) || ts.isNoSubstitutionTemplateLiteral(init)) return init.text;
-    return init.getText(sf);
+    return safeNodeText(init, sf);
   }
   return undefined;
 }

@@ -163,8 +163,9 @@ async function main(argv: string[]): Promise<number> {
     await program.parseAsync(argv);
     return Number(process.exitCode ?? 0);
   } catch (e: any) {
+    // Print full stack when available (critical for diagnosing deep-recursion failures)
     // eslint-disable-next-line no-console
-    console.error(e?.message ?? String(e));
+    console.error(e?.stack ?? e?.message ?? String(e));
     return 2;
   }
 }
@@ -172,6 +173,17 @@ async function main(argv: string[]): Promise<number> {
 // Run CLI only when executed directly (not when imported in tests)
 // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
 if (require.main === module) {
+  // Ensure we don't lose stack traces for uncaught errors.
+  process.on('uncaughtException', (err: any) => {
+    // eslint-disable-next-line no-console
+    console.error(err?.stack ?? err?.message ?? String(err));
+    process.exitCode = 2;
+  });
+  process.on('unhandledRejection', (err: any) => {
+    // eslint-disable-next-line no-console
+    console.error(err?.stack ?? err?.message ?? String(err));
+    process.exitCode = 2;
+  });
   // eslint-disable-next-line @typescript-eslint/no-floating-promises
   main(process.argv).then((code) => {
     process.exitCode = code;

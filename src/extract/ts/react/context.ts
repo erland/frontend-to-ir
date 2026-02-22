@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { safeNodeText } from '../util/safeText';
 import path from 'node:path';
 import type { IrClassifier } from '../../../ir/irV1';
 import { addFinding } from '../../../report/reportBuilder';
@@ -47,7 +48,7 @@ function ensureContextClassifier(rctx: ReactWorkContext, sf: ts.SourceFile, node
   c.kind = 'SERVICE';
   rctx.addStereotype(c, 'ReactContext');
   rctx.setClassifierTag(c, 'framework', 'react');
-  if (typeNode) rctx.setClassifierTag(c, 'react.contextType', typeNode.getText(sf));
+  if (typeNode) rctx.setClassifierTag(c, 'react.contextType', safeNodeText(typeNode, sf));
   return c;
 }
 
@@ -149,7 +150,7 @@ export function addUseContextAndProviderEdges(rctx: ReactWorkContext, ownerByNod
       if (ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n)) {
         const tagName = n.tagName;
         if (ts.isPropertyAccessExpression(tagName) && tagName.name.text === 'Provider') {
-          const ctxName = tagName.expression.getText(sf);
+          const ctxName = safeNodeText(tagName.expression, sf);
           const ownerName = ownerByNode.get(n) ?? '';
           const from = ownerName ? classifierByFileAndName.get(`${relFile}::${ownerName}`) : undefined;
           const toId = contextByName.get(ctxName);

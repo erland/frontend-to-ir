@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { safeNodeText } from '../util/safeText';
 import path from 'node:path';
 import { addFinding } from '../../../report/reportBuilder';
 import { hashId } from '../../../util/id';
@@ -23,7 +24,7 @@ function addRender(rctx: ReactWorkContext, sf: ts.SourceFile, fromId: string, to
 
 function jsxTagText(tag: ts.JsxTagNameExpression, sf: ts.SourceFile): string {
   if (ts.isIdentifier(tag)) return tag.text;
-  return tag.getText(sf);
+  return safeNodeText(tag, sf);
 }
 
 export function addJsxRenderEdges(rctx: ReactWorkContext, ownerByNode: Map<ts.Node, string>) {

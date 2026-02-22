@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { safeNodeText } from '../util/safeText';
 import path from 'node:path';
 import type { IrAttribute, IrClassifier, IrModel, IrRelation, IrRelationKind, IrTypeRef } from '../../../ir/irV1';
 import { hashId, toPosixPath } from '../../../util/id';
@@ -76,7 +77,7 @@ export function fillMembersAndRelations(ctx: {
           for (const m of node.members) {
             if (ts.isPropertyDeclaration(m) || ts.isPropertySignature(m)) {
               if (!m.name) continue;
-              const name = ts.isIdentifier(m.name) ? m.name.text : m.name.getText(sf);
+              const name = ts.isIdentifier(m.name) ? m.name.text : safeNodeText(m.name, sf);
               const symM = checker.getSymbolAtLocation(m.name as any);
               const typeAnn = (m as any).type as ts.TypeNode | undefined;
               const type = typeAnn ? checker.getTypeFromTypeNode(typeAnn) : symM ? checker.getTypeOfSymbolAtLocation(symM, m) : checker.getTypeAtLocation(m);
@@ -112,7 +113,7 @@ export function fillMembersAndRelations(ctx: {
                   : m.name
                     ? ts.isIdentifier(m.name)
                       ? m.name.text
-                      : m.name.getText(sf)
+                      : safeNodeText(m.name, sf)
                     : 'method';
               const sig = checker.getSignatureFromDeclaration(m as any);
               const returnType: IrTypeRef =
@@ -165,7 +166,7 @@ export function fillMembersAndRelations(ctx: {
 
         if (ts.isEnumDeclaration(node)) {
           for (const mem of node.members) {
-            const n = mem.name.getText(sf);
+            const n = safeNodeText(mem.name, sf);
             cls.attributes = cls.attributes ?? [];
             cls.attributes.push({
               id: hashId('a:', `${cls.id}:${n}`),
@@ -178,7 +179,7 @@ export function fillMembersAndRelations(ctx: {
 
         if (ts.isTypeAliasDeclaration(node)) {
           cls.taggedValues = cls.taggedValues ?? [];
-          cls.taggedValues.push({ key: 'ts.typeAlias', value: node.type.getText(sf) });
+          cls.taggedValues.push({ key: 'ts.typeAlias', value: safeNodeText(node.type, sf) });
         }
 
         if (ts.isFunctionDeclaration(node)) {

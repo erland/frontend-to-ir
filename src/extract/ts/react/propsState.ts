@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { safeNodeText } from '../util/safeText';
 import type { IrClassifier, IrTypeRef } from '../../../ir/irV1';
 import { typeNodeToIrTypeRef } from '../typeRef';
 import type { ReactWorkContext } from './types';
@@ -29,18 +30,18 @@ export function applyReactPropsState(
   if (propsTypeNode) {
     const propsType = typeNodeToIrTypeRef(propsTypeNode, checker);
     upsertAttr(c, 'props', propsType, 'props');
-    rctx.setClassifierTag(c, 'react.propsType', propsTypeNode.getText(sf));
+    rctx.setClassifierTag(c, 'react.propsType', safeNodeText(propsTypeNode, sf));
   }
   if (stateTypeNode) {
     const stateType = typeNodeToIrTypeRef(stateTypeNode, checker);
     upsertAttr(c, 'state', stateType, 'state');
-    rctx.setClassifierTag(c, 'react.stateType', stateTypeNode.getText(sf));
+    rctx.setClassifierTag(c, 'react.stateType', safeNodeText(stateTypeNode, sf));
   }
 }
 
 export function isReactFcType(tn: ts.TypeNode, sf: ts.SourceFile): ts.TypeNode | null {
   if (!ts.isTypeReferenceNode(tn)) return null;
-  const typeName = tn.typeName.getText(sf);
+  const typeName = safeNodeText(tn.typeName, sf);
   const isFc =
     typeName === 'React.FC' ||
     typeName === 'FC' ||

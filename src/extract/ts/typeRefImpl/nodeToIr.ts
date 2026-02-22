@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { safeNodeText } from '../util/safeText';
 import { IrTypeRef } from '../../../ir/irV1';
 import { typeToIrTypeRef } from './typeToIr';
 
@@ -24,7 +25,7 @@ export function typeNodeToIrTypeRef(node: ts.TypeNode, checker: ts.TypeChecker):
 
   // If the checker degraded an unresolved reference to `any/unknown`, recover the written name.
   if (ir.kind === 'UNKNOWN' && ts.isTypeReferenceNode(node)) {
-    const name = node.typeName.getText();
+    const name = safeNodeText(node.typeName);
     if (name) return { kind: 'NAMED', name };
   }
 
