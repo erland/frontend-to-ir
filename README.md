@@ -67,8 +67,19 @@ You should copy those files into this repo (or add them as a git submodule / npm
 Choose a license for this repo (MIT/BSD recommended if you plan broad reuse).
 
 
-## CI: notify code-to-xmi-server
+## IR service image (GHCR)
 
-This repo includes a GitHub Actions workflow that triggers a snapshot image rebuild in `erland/code-to-xmi-server` on every push to `main`.
+This repository publishes a ready-to-run HTTP service image used by `code-to-xmi-server`:
 
-To enable it, add a repository secret named `CODE_TO_XMI_SERVER_DISPATCH_TOKEN` with a GitHub PAT that has permission to call `repository_dispatch` on `erland/code-to-xmi-server`.
+- `ghcr.io/erland/code-to-xmi-ir-service`
+
+Endpoints:
+
+- `GET /health`
+- `POST /v1/ir` (multipart `inputZip` or `repoUrl`, plus `mode=react|angular|ts|js`)
+
+Run it directly:
+
+```bash
+docker run --rm -p 7071:7071 ghcr.io/erland/code-to-xmi-ir-service:snapshot
+```

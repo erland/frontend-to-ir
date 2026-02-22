@@ -1,0 +1,18 @@
+FROM node:20-bookworm
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+
+# --- frontend-to-ir runtime (CLI + deps) ---
+WORKDIR /app
+COPY package.json package-lock.json* ./
+RUN npm ci --omit=dev --no-audit --no-fund
+COPY dist ./dist
+
+# --- ir-service runtime ---
+WORKDIR /app/services/ir-service
+COPY services/ir-service/package.json services/ir-service/package-lock.json* ./
+RUN npm ci --omit=dev --no-audit --no-fund
+COPY services/ir-service/src ./src
+
+ENV FRONTEND_TO_IR_CLI=/app/dist/cli.js
+EXPOSE 7071
+CMD ["node","src/index.js"]
