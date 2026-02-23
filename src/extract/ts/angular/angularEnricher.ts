@@ -5,6 +5,7 @@ import { hashId } from '../../../util/id';
 import type { ExtractorContext } from '../context';
 import { detectAngularDecorators, applyAngularClassifierDecoration } from './decorators';
 import { extractConstructorDiEdges, extractInjectFunctionEdges, extractProviderRegistrationEdges } from './di';
+import { extractAngularHttpEdges } from './http';
 import { extractNgModuleEdges } from './ngModule';
 import { extractStandaloneComponentEdges } from './modules';
 import { extractInputsOutputs } from './inputsOutputs';
@@ -186,6 +187,19 @@ export function enrichAngularModel(ctx: ExtractorContext) {
             node,
             c,
             classifierByName,
+            addRelation,
+            report,
+          });
+
+          // HTTP call graph (HttpClient)
+          extractAngularHttpEdges({
+            sf,
+            rel,
+            projectRoot,
+            node,
+            c,
+            checker,
+            model,
             addRelation,
             report,
           });
