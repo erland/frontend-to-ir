@@ -3,7 +3,7 @@ import { IrTypeRef } from '../../../ir/irV1';
 import { getArrayElementType } from './array';
 import { primitiveTypeToIr } from './primitives';
 import { unionToIr, intersectionToIr, isIntersectionLike } from './composite';
-import { namedOrGenericToIr } from './namedGeneric';
+import { namedOrGenericToIr, ResolveQualifiedNameFn } from './namedGeneric';
 
 export type TypeToIrCtx = { seen: Set<number>; depth: number; maxDepth: number };
 
@@ -22,7 +22,12 @@ function nextCtx(ctx: TypeToIrCtx): TypeToIrCtx {
  * Convert a TypeScript type to IR TypeRef.
  * NOTE: Best-effort structural mapping intended to be schema-compliant.
  */
-export function typeToIrTypeRef(type: ts.Type, checker: ts.TypeChecker, ctx?: TypeToIrCtx): IrTypeRef {
+export function typeToIrTypeRef(
+  type: ts.Type,
+  checker: ts.TypeChecker,
+  ctx?: TypeToIrCtx,
+  resolveQualifiedName?: ResolveQualifiedNameFn,
+): IrTypeRef {
   const _ctx: TypeToIrCtx = ctx ?? { seen: new Set<number>(), depth: 0, maxDepth: 80 };
   if (_ctx.depth > _ctx.maxDepth) return { kind: 'NAMED', name: 'depth-limit' } as any;
   const id = getTypeId(type);
@@ -33,17 +38,17 @@ export function typeToIrTypeRef(type: ts.Type, checker: ts.TypeChecker, ctx?: Ty
 
   // Union / intersection
   if (type.isUnion()) {
-    return unionToIr(type.types, (t) => typeToIrTypeRef(t, checker, nextCtx(_ctx)));
+    return unionToIr(type.types, (t) => typeToIrTypeRef(t, checker, nextCtx(_ctx), resolveQualifiedName));
   }
   const parts = isIntersectionLike(type);
   if (parts) {
-    return intersectionToIr(parts, (t) => typeToIrTypeRef(t, checker, nextCtx(_ctx)));
+    return intersectionToIr(parts, (t) => typeToIrTypeRef(t, checker, nextCtx(_ctx), resolveQualifiedName));
   }
 
   // Array
   const element = getArrayElementType(type, checker);
   if (element) {
-    return { kind: 'ARRAY', elementType: typeToIrTypeRef(element, checker, nextCtx(_ctx)) };
+    return { kind: 'ARRAY', elementType: typeToIrTypeRef(element, checker, nextCtx(_ctx), resolveQualifiedName) };
   }
 
   // Primitives
@@ -51,5 +56,5 @@ export function typeToIrTypeRef(type: ts.Type, checker: ts.TypeChecker, ctx?: Ty
   if (prim) return prim;
 
   // Named / generic
-  return namedOrGenericToIr(type, checker, (t) => typeToIrTypeRef(t, checker, nextCtx(_ctx)));
+  return namedOrGenericToIr(type, checker, (t) => typeToIrTypeRef(t, checker, nextCtx(_ctx), resolveQualifiedName), resolveQualifiedName);
 }

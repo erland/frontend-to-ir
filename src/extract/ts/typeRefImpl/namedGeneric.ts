@@ -1,5 +1,5 @@
 import ts from 'typescript';
-import { IrTypeRef } from '../../../ir/irV1';
+import { IrTaggedValue, IrTypeRef } from '../../../ir/irV1';
 
 function isStackOverflow(e: unknown): boolean {
   return e instanceof RangeError || (typeof (e as any)?.message === 'string' && (e as any).message.includes('Maximum call stack'));
@@ -65,13 +65,44 @@ function safeTypeToString(type: ts.Type, checker: ts.TypeChecker): string {
   }
 }
 
-export function namedOrGenericToIr(type: ts.Type, checker: ts.TypeChecker, map: (t: ts.Type) => IrTypeRef): IrTypeRef {
+export type ResolveQualifiedNameFn = (sym: ts.Symbol) => string | undefined;
+
+function withTaggedValues(ir: IrTypeRef, extra: IrTaggedValue[]): IrTypeRef {
+  const taggedValues = [...(ir.taggedValues ?? []), ...extra];
+  return { ...ir, taggedValues };
+}
+
+export function namedOrGenericToIr(
+  type: ts.Type,
+  checker: ts.TypeChecker,
+  map: (t: ts.Type) => IrTypeRef,
+  resolveQualifiedName?: ResolveQualifiedNameFn,
+): IrTypeRef {
   const sym = type.getSymbol();
-  const name = sym ? safeSymbolToString(checker, sym) : safeTypeToString(type, checker);
+
+  // IMPORTANT: Never use TS printer strings as the *identity* of a type ref.
+  // If we can resolve a stable qualified name (based on symbol declarations + package mapping),
+  // prefer that for `name` so downstream tools can reliably bind the ref.
+  let name: string;
+  let extraTags: IrTaggedValue[] = [];
+  if (sym && resolveQualifiedName) {
+    const qn = resolveQualifiedName(sym);
+    if (qn) {
+      name = qn;
+      const display = safeSymbolToString(checker, sym);
+      if (display && display !== qn) extraTags.push({ key: 'ts.displayName', value: display });
+    } else {
+      name = safeSymbolToString(checker, sym);
+    }
+  } else {
+    name = sym ? safeSymbolToString(checker, sym) : safeTypeToString(type, checker);
+  }
 
   const typeArgs = checker.getTypeArguments?.(type as ts.TypeReference) ?? [];
   if (typeArgs && typeArgs.length > 0) {
-    return { kind: 'GENERIC', name, typeArgs: typeArgs.map(map) };
+    const ir: IrTypeRef = { kind: 'GENERIC', name, typeArgs: typeArgs.map(map) };
+    return extraTags.length ? withTaggedValues(ir, extraTags) : ir;
   }
-  return { kind: 'NAMED', name };
+  const ir: IrTypeRef = { kind: 'NAMED', name };
+  return extraTags.length ? withTaggedValues(ir, extraTags) : ir;
 }

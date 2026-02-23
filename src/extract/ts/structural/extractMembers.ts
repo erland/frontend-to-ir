@@ -3,7 +3,7 @@ import { safeNodeText } from '../util/safeText';
 import path from 'node:path';
 import type { IrAttribute, IrClassifier, IrModel, IrRelation, IrRelationKind, IrTypeRef } from '../../../ir/irV1';
 import { hashId, toPosixPath } from '../../../util/id';
-import { typeToIrTypeRef, typeNodeToIrTypeRef, collectReferencedTypeSymbols } from '../typeRef';
+import { typeToIrTypeRef, typeNodeToIrTypeRefResolved, collectReferencedTypeSymbols, ResolveQualifiedNameFn } from '../typeRef';
 import type { IrPackageInfo } from '../context';
 import { classifierKindFromNode, sourceRefForNode, visibilityFromModifiers } from './util';
 import type { DeclaredSymbol } from './declareClassifiers';
@@ -34,6 +34,29 @@ export function fillMembersAndRelations(ctx: {
     if (!sym) return null;
     const found = declared.get(sym);
     return found?.id ?? null;
+  };
+
+  const resolveQualifiedName: ResolveQualifiedNameFn = (sym) => {
+    let s = sym;
+    // Normalize aliases (imports/re-exports) to the underlying symbol.
+    // This avoids simple-name fallbacks causing external stubs downstream.
+    // eslint-disable-next-line no-bitwise
+    if (s.flags & ts.SymbolFlags.Alias) {
+      try {
+        s = checker.getAliasedSymbol(s);
+      } catch {
+        // ignore
+      }
+    }
+    const d = declared.get(s);
+    if (!d) return undefined;
+    const cls = classifierById.get(d.id);
+    return cls?.qualifiedName ?? cls?.name;
+  };
+
+  const toIrType = (t: ts.Type, typeAnn?: ts.TypeNode): IrTypeRef => {
+    if (typeAnn) return typeNodeToIrTypeRefResolved(typeAnn, checker, resolveQualifiedName);
+    return typeToIrTypeRef(t, checker, undefined, resolveQualifiedName);
   };
 
   const fillInSourceFile = (sf: ts.SourceFile) => {
@@ -81,7 +104,7 @@ export function fillMembersAndRelations(ctx: {
               const symM = checker.getSymbolAtLocation(m.name as any);
               const typeAnn = (m as any).type as ts.TypeNode | undefined;
               const type = typeAnn ? checker.getTypeFromTypeNode(typeAnn) : symM ? checker.getTypeOfSymbolAtLocation(symM, m) : checker.getTypeAtLocation(m);
-              const typeRef = typeAnn ? typeNodeToIrTypeRef(typeAnn, checker) : typeToIrTypeRef(type, checker);
+              const typeRef = toIrType(type, typeAnn);
               const a: IrAttribute = {
                 id: hashId('a:', `${cls.id}:${name}`),
                 name,
@@ -120,9 +143,9 @@ export function fillMembersAndRelations(ctx: {
                 isCtor
                   ? { kind: 'NAMED', name: cls.name }
                   : m.type
-                    ? typeNodeToIrTypeRef(m.type, checker)
+                    ? toIrType(checker.getTypeFromTypeNode(m.type), m.type)
                     : sig
-                      ? typeToIrTypeRef(checker.getReturnTypeOfSignature(sig), checker)
+                      ? toIrType(checker.getReturnTypeOfSignature(sig))
                       : { kind: 'UNKNOWN', name: 'unknown' };
 
               const params = (m as any).parameters?.map((p: ts.ParameterDeclaration) => {
@@ -130,7 +153,7 @@ export function fillMembersAndRelations(ctx: {
                 const pt = p.type ? checker.getTypeFromTypeNode(p.type) : checker.getTypeAtLocation(p);
                 return {
                   name: pn,
-                  type: p.type ? typeNodeToIrTypeRef(p.type, checker) : typeToIrTypeRef(pt, checker),
+                  type: toIrType(pt, p.type ?? undefined),
                 };
               }) ?? [];
 
@@ -189,11 +212,11 @@ export function fillMembersAndRelations(ctx: {
             cls.operations.push({
               id: hashId('o:', `${cls.id}:${cls.name}`),
               name: cls.name,
-              returnType: node.type ? typeNodeToIrTypeRef(node.type, checker) : typeToIrTypeRef(checker.getReturnTypeOfSignature(sig), checker),
+              returnType: node.type ? toIrType(checker.getTypeFromTypeNode(node.type), node.type) : toIrType(checker.getReturnTypeOfSignature(sig)),
               parameters: node.parameters.map((p) => {
                 const pn = ts.isIdentifier(p.name) ? p.name.text : 'param';
                 const pt = p.type ? checker.getTypeFromTypeNode(p.type) : checker.getTypeAtLocation(p);
-                return { name: pn, type: p.type ? typeNodeToIrTypeRef(p.type, checker) : typeToIrTypeRef(pt, checker) };
+                return { name: pn, type: toIrType(pt, p.type ?? undefined) };
               }),
               source: sourceRefForNode(sf, node, projectRoot),
             });
@@ -218,11 +241,11 @@ export function fillMembersAndRelations(ctx: {
             cls.operations.push({
               id: hashId('o:', `${cls.id}:${name}`),
               name,
-              returnType: init.type ? typeNodeToIrTypeRef(init.type, checker) : typeToIrTypeRef(checker.getReturnTypeOfSignature(sig), checker),
+              returnType: init.type ? toIrType(checker.getTypeFromTypeNode(init.type), init.type) : toIrType(checker.getReturnTypeOfSignature(sig)),
               parameters: init.parameters.map((p) => {
                 const pn = ts.isIdentifier(p.name) ? p.name.text : 'param';
                 const pt = p.type ? checker.getTypeFromTypeNode(p.type) : checker.getTypeAtLocation(p);
-                return { name: pn, type: p.type ? typeNodeToIrTypeRef(p.type, checker) : typeToIrTypeRef(pt, checker) };
+                return { name: pn, type: toIrType(pt, p.type ?? undefined) };
               }),
               source: sourceRefForNode(sf, declNode, projectRoot),
             });

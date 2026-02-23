@@ -2,6 +2,7 @@ import ts from 'typescript';
 import { safeNodeText } from '../util/safeText';
 import { IrTypeRef } from '../../../ir/irV1';
 import { typeToIrTypeRef } from './typeToIr';
+import { ResolveQualifiedNameFn } from './namedGeneric';
 
 /**
  * Convert a TypeScript TypeNode to IR TypeRef, preserving unresolved type reference names.
@@ -21,7 +22,7 @@ export function typeNodeToIrTypeRef(node: ts.TypeNode, checker: ts.TypeChecker):
   }
 
   const type = checker.getTypeFromTypeNode(node);
-  const ir = typeToIrTypeRef(type, checker);
+  const ir = typeToIrTypeRef(type, checker, undefined, undefined);
 
   // If the checker degraded an unresolved reference to `any/unknown`, recover the written name.
   if (ir.kind === 'UNKNOWN' && ts.isTypeReferenceNode(node)) {
@@ -29,5 +30,29 @@ export function typeNodeToIrTypeRef(node: ts.TypeNode, checker: ts.TypeChecker):
     if (name) return { kind: 'NAMED', name };
   }
 
+  return ir;
+}
+
+/**
+ * Variant that can stabilize type identity via a qualified-name resolver.
+ */
+export function typeNodeToIrTypeRefResolved(node: ts.TypeNode, checker: ts.TypeChecker, resolveQualifiedName?: ResolveQualifiedNameFn): IrTypeRef {
+  if (ts.isArrayTypeNode(node)) {
+    return { kind: 'ARRAY', elementType: typeNodeToIrTypeRefResolved(node.elementType, checker, resolveQualifiedName) };
+  }
+  if (ts.isUnionTypeNode(node)) {
+    return { kind: 'UNION', typeArgs: node.types.map((t) => typeNodeToIrTypeRefResolved(t, checker, resolveQualifiedName)) };
+  }
+  if (ts.isIntersectionTypeNode(node)) {
+    return { kind: 'INTERSECTION', typeArgs: node.types.map((t) => typeNodeToIrTypeRefResolved(t, checker, resolveQualifiedName)) };
+  }
+
+  const type = checker.getTypeFromTypeNode(node);
+  const ir = typeToIrTypeRef(type, checker, undefined, resolveQualifiedName);
+
+  if (ir.kind === 'UNKNOWN' && ts.isTypeReferenceNode(node)) {
+    const name = safeNodeText(node.typeName);
+    if (name) return { kind: 'NAMED', name };
+  }
   return ir;
 }
