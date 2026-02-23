@@ -6,6 +6,7 @@ import { canonicalizeIrModel } from '../../ir/canonicalizeIrModel';
 import type { ExtractionReport } from '../../report/extractionReport';
 import { extractImportGraphRelations } from './imports/importGraph';
 import { extractStructuralModel } from './structural/structuralExtractor';
+import { extractPublicApiSurface } from './exports/publicApi';
 import { createProgramFromScan } from './program/createProgram';
 import type { ExtractorContext } from './context';
 import { postProcessReportFromModel } from './report/postProcessReport';
@@ -106,6 +107,22 @@ const { program, checker, compilerOptions } = createProgramFromScan({
     });
     model.relations = [...(model.relations ?? []), ...extra];
   }
+
+  if (opts.importGraph) {
+    const pa = extractPublicApiSurface({
+      program,
+      checker,
+      compilerOptions,
+      projectRoot,
+      scannedRel,
+      model,
+      pkgByDir,
+      ensureFileModule: (relFile: string, pkgId: string) => ensureFileModule(relFile, pkgId),
+      report: opts.report,
+    });
+    model.relations = [...(model.relations ?? []), ...pa.relations];
+  }
+
 
   // Step 8: populate report counts + unresolved tracking.
   if (opts.report) postProcessReportFromModel(model, opts.report);
