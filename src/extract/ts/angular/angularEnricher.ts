@@ -6,6 +6,7 @@ import type { ExtractorContext } from '../context';
 import { detectAngularDecorators, applyAngularClassifierDecoration } from './decorators';
 import { extractConstructorDiEdges, extractInjectFunctionEdges, extractProviderRegistrationEdges } from './di';
 import { extractNgModuleEdges } from './ngModule';
+import { extractStandaloneComponentEdges } from './modules';
 import { extractInputsOutputs } from './inputsOutputs';
 import { extractAngularRoutesFromSourceFile } from './routing';
 import { getDecorators, sourceRefForNode, toPosixPath } from './util';
@@ -154,6 +155,17 @@ export function enrichAngularModel(ctx: ExtractorContext) {
             addRelation,
             report,
           });
+
+          extractStandaloneComponentEdges({
+            sf,
+            node,
+            relPath: rel,
+            c,
+            classifierByName,
+            addRelation,
+            report,
+          });
+
         }
 
         if (info.isComponent || info.isInjectable) {

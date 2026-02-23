@@ -28,7 +28,7 @@ export function extractNgModuleEdges(args: {
   const obj = d ? getDecoratorArgObject(d) : undefined;
   if (!obj) return;
 
-  for (const role of ['imports', 'providers', 'declarations'] as const) {
+  for (const role of ['imports', 'providers', 'declarations', 'exports', 'bootstrap'] as const) {
     const names = readArrayIdentifiers(obj, role);
     for (const nm of names) {
       const to = classifierByName.get(nm);
