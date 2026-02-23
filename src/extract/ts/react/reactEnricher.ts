@@ -8,6 +8,7 @@ import { addJsxRenderEdges } from './renderEdges';
 import { addReactRouteTableEdges } from './routes';
 import { addReactHttpEdges } from './http';
 import { addReactStateEdges } from './stateRedux';
+import { addReactContractEdges } from './contracts';
 
 export function enrichReactModel(ctx: ExtractorContext) {
   const { program, checker, projectRoot, scannedRel, model, report, includeFrameworkEdges } = ctx;
@@ -53,6 +54,9 @@ export function enrichReactModel(ctx: ExtractorContext) {
   // 6) Add state graph edges (Redux-like)
   addReactStateEdges(rctx, ownerByNode);
 
-  // 7) Add route table edges (React Router)
+  // 7) Add React props/event contracts
+  addReactContractEdges(rctx, ownerByNode);
+
+  // 8) Add route table edges (React Router)
   addReactRouteTableEdges(rctx);
 }
