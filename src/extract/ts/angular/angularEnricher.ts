@@ -4,7 +4,7 @@ import type { IrClassifier, IrRelationKind, IrTaggedValue } from '../../../ir/ir
 import { hashId } from '../../../util/id';
 import type { ExtractorContext } from '../context';
 import { detectAngularDecorators, applyAngularClassifierDecoration } from './decorators';
-import { extractConstructorDiEdges } from './di';
+import { extractConstructorDiEdges, extractInjectFunctionEdges, extractProviderRegistrationEdges } from './di';
 import { extractNgModuleEdges } from './ngModule';
 import { extractInputsOutputs } from './inputsOutputs';
 import { extractAngularRoutesFromSourceFile } from './routing';
@@ -32,11 +32,27 @@ export function enrichAngularModel(ctx: ExtractorContext) {
     else c.taggedValues.push({ key, value });
   };
 
-  // Deduplicate edges by (kind, from, to, role)
+  // Deduplicate edges. For DI edges, include extra tag discriminators so provider objects don't collapse into class providers.
+  const edgeKey = (kind: IrRelationKind, fromId: string, toId: string, tags: IrTaggedValue[] = []) => {
+    const get = (k: string) => tags.find((t) => t.key === k)?.value ?? '';
+    const role = get('role');
+    if (kind === 'DI') {
+      // Allow multiple DI edges between the same nodes if they represent different DI semantics.
+      const origin = get('origin');
+      const token = get('token');
+      const provide = get('provide');
+      const useClass = get('useClass');
+      const providerKind = get('providerKind');
+      const scope = get('scope');
+      return `${kind}:${fromId}:${toId}:${role}:${origin}:${scope}:${token}:${provide}:${useClass}:${providerKind}`;
+    }
+    return `${kind}:${fromId}:${toId}:${role}`;
+  };
+
+  // Deduplicate edges
   const existingKeys = new Set<string>();
   for (const r of model.relations ?? []) {
-    const role = (r.taggedValues ?? []).find((tv) => tv.key === 'role')?.value ?? '';
-    existingKeys.add(`${r.kind}:${r.sourceId}:${r.targetId}:${role}`);
+    existingKeys.add(edgeKey(r.kind, r.sourceId, r.targetId, r.taggedValues ?? []));
   }
 
   const addRelation = (
@@ -48,10 +64,10 @@ export function enrichAngularModel(ctx: ExtractorContext) {
     tags: IrTaggedValue[],
   ) => {
     if (includeFrameworkEdges === false) return;
-    const role = tags.find((t) => t.key === 'role')?.value ?? '';
-    const key = `${kind}:${fromId}:${toId}:${role}`;
+    const key = edgeKey(kind, fromId, toId, tags);
     if (existingKeys.has(key)) return;
     const relFile = toPosixPath(path.relative(projectRoot, sf.fileName));
+    const role = tags.find((t) => t.key === 'role')?.value ?? '';
     const id = hashId('r:', `${kind}:${relFile}:${fromId}->${toId}:${role}:${node.pos}`);
     (model.relations ?? (model.relations = [])).push({
       id,
@@ -102,6 +118,16 @@ export function enrichAngularModel(ctx: ExtractorContext) {
             addRelation,
             report,
           });
+
+          extractProviderRegistrationEdges({
+            sf,
+            rel,
+            node,
+            c,
+            classifierByName,
+            addRelation,
+            report,
+          });
         }
 
         if (info.isComponent) {
@@ -117,6 +143,17 @@ export function enrichAngularModel(ctx: ExtractorContext) {
             addRelation,
             report,
           });
+
+
+          extractProviderRegistrationEdges({
+            sf,
+            rel,
+            node,
+            c,
+            classifierByName,
+            addRelation,
+            report,
+          });
         }
 
         if (info.isComponent || info.isInjectable) {
@@ -126,6 +163,16 @@ export function enrichAngularModel(ctx: ExtractorContext) {
             node,
             c,
             checker,
+            classifierByName,
+            addRelation,
+            report,
+          });
+
+          extractInjectFunctionEdges({
+            sf,
+            rel,
+            node,
+            c,
             classifierByName,
             addRelation,
             report,
