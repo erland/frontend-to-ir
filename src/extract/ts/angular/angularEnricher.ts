@@ -6,6 +6,7 @@ import type { ExtractorContext } from '../context';
 import { detectAngularDecorators, applyAngularClassifierDecoration } from './decorators';
 import { extractConstructorDiEdges, extractInjectFunctionEdges, extractProviderRegistrationEdges } from './di';
 import { extractAngularHttpEdges } from './http';
+import { buildNgRxIndex, extractAngularStateEdges, addNgRxEffectOfTypeEdges } from './stateNgRx';
 import { extractNgModuleEdges } from './ngModule';
 import { extractStandaloneComponentEdges } from './modules';
 import { extractInputsOutputs } from './inputsOutputs';
@@ -21,6 +22,11 @@ export function enrichAngularModel(ctx: ExtractorContext) {
 
   const classifierByName = new Map<string, IrClassifier>();
   for (const c of model.classifiers) classifierByName.set(c.name, c);
+
+  // State graph (NgRx) index (best-effort)
+  const ngrxIndex = buildNgRxIndex({ program, projectRoot, scannedRel, model });
+  // Global NgRx effect -> action edges (ofType)
+  addNgRxEffectOfTypeEdges({ program, projectRoot, scannedRel, model, ngrx: ngrxIndex, report });
 
   const hasStereotype = (c: IrClassifier, name: string) => (c.stereotypes ?? []).some((st) => st.name === name);
   const addStereo = (c: IrClassifier, name: string) => {
@@ -201,6 +207,18 @@ export function enrichAngularModel(ctx: ExtractorContext) {
             checker,
             model,
             addRelation,
+            report,
+          });
+
+          // State graph (NgRx)
+          extractAngularStateEdges({
+            sf,
+            rel,
+            projectRoot,
+            node,
+            c,
+            addRelation,
+            ngrx: ngrxIndex,
             report,
           });
         }
