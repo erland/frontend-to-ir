@@ -5,6 +5,7 @@ import type { ReactWorkContext } from './types';
 import { detectReactComponents } from './components';
 import { detectReactContexts, addUseContextAndProviderEdges } from './context';
 import { addJsxRenderEdges } from './renderEdges';
+import { addReactRouteTableEdges } from './routes';
 
 export function enrichReactModel(ctx: ExtractorContext) {
   const { program, checker, projectRoot, scannedRel, model, report, includeFrameworkEdges } = ctx;
@@ -43,4 +44,7 @@ export function enrichReactModel(ctx: ExtractorContext) {
 
   // 4) Add useContext/provider DI edges
   addUseContextAndProviderEdges(rctx, ownerByNode);
+
+  // 5) Add route table edges (React Router)
+  addReactRouteTableEdges(rctx);
 }

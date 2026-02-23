@@ -255,4 +255,86 @@ export function Provider() {
     expect(hasConsumerJsx).toBe(true);
   });
 
+  test('extracts React Router route table (JSX Routes/Route and createBrowserRouter)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'f2ir-react-routes-'));
+
+    writeFile(
+      path.join(dir, 'tsconfig.json'),
+      JSON.stringify(
+        {
+          compilerOptions: {
+            target: 'ES2020',
+            module: 'ESNext',
+            strict: true,
+            noEmit: true,
+            jsx: 'react-jsx',
+          },
+          include: ['src/**/*'],
+        },
+        null,
+        2,
+      ),
+    );
+
+    writeFile(
+      path.join(dir, 'src', 'Pages.tsx'),
+      `
+export function Home() { return <div>home</div>; }
+export function About() { return <div>about</div>; }
+export function Layout() { return <div>layout</div>; }
+`,
+    );
+
+    writeFile(
+      path.join(dir, 'src', 'routes.tsx'),
+      `
+import { Home, About, Layout } from './Pages';
+
+// JSX form
+export const AppRoutes = () => (
+  <Routes>
+    <Route path="/" element={<Layout />}>
+      <Route index element={<Home />} />
+      <Route path="about" element={<About />} />
+    </Route>
+  </Routes>
+);
+
+// Data-router form
+export const router = createBrowserRouter([
+  { path: '/', element: <Layout />, children: [
+    { index: true, element: <Home /> },
+    { path: 'about', Component: About },
+  ]},
+]);
+`,
+    );
+
+    const model = await extractTypeScriptStructuralModel({ projectRoot: dir, react: true });
+
+    const routes = model.classifiers.filter((c) => (c.stereotypes ?? []).some((s) => s.name === 'ReactRoute'));
+    expect(routes.length).toBeGreaterThan(0);
+
+    const home = model.classifiers.find((c) => c.name === 'Home');
+    const about = model.classifiers.find((c) => c.name === 'About');
+    const layout = model.classifiers.find((c) => c.name === 'Layout');
+    expect(home).toBeTruthy();
+    expect(about).toBeTruthy();
+    expect(layout).toBeTruthy();
+
+    const deps = (model.relations ?? []).filter(
+      (r) => r.kind === 'DEPENDENCY' && (r.taggedValues ?? []).some((t) => t.key === 'origin' && t.value === 'router'),
+    );
+
+    const hasTo = (c: any) =>
+      deps.some((r) => r.targetId === c.id && (r.taggedValues ?? []).some((t) => t.key === 'role' && t.value === 'component'));
+
+    expect(hasTo(layout)).toBe(true);
+    expect(hasTo(home)).toBe(true);
+    expect(hasTo(about)).toBe(true);
+
+    const childEdges = deps.filter((r) => (r.taggedValues ?? []).some((t) => t.key === 'role' && t.value === 'child'));
+    expect(childEdges.length).toBeGreaterThan(0);
+  });
+
 });
