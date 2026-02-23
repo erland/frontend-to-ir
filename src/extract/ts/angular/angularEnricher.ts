@@ -7,6 +7,7 @@ import { detectAngularDecorators, applyAngularClassifierDecoration } from './dec
 import { extractConstructorDiEdges, extractInjectFunctionEdges, extractProviderRegistrationEdges } from './di';
 import { extractAngularHttpEdges } from './http';
 import { buildNgRxIndex, extractAngularStateEdges, addNgRxEffectOfTypeEdges } from './stateNgRx';
+import { buildAngularTemplateIndex, extractAngularTemplateEdges } from './templates';
 import { extractNgModuleEdges } from './ngModule';
 import { extractStandaloneComponentEdges } from './modules';
 import { extractInputsOutputs } from './inputsOutputs';
@@ -27,6 +28,9 @@ export function enrichAngularModel(ctx: ExtractorContext) {
   const ngrxIndex = buildNgRxIndex({ program, projectRoot, scannedRel, model });
   // Global NgRx effect -> action edges (ofType)
   addNgRxEffectOfTypeEdges({ program, projectRoot, scannedRel, model, ngrx: ngrxIndex, report });
+
+  // Template coupling index (pipes/directives/components)
+  const templateIndex = buildAngularTemplateIndex({ program, projectRoot, scannedRel, model });
 
   const hasStereotype = (c: IrClassifier, name: string) => (c.stereotypes ?? []).some((st) => st.name === name);
   const addStereo = (c: IrClassifier, name: string) => {
@@ -221,6 +225,22 @@ export function enrichAngularModel(ctx: ExtractorContext) {
             ngrx: ngrxIndex,
             report,
           });
+
+          // Template coupling (pipes/directives/components usage)
+          if (info.isComponent) {
+            extractAngularTemplateEdges({
+              sf,
+              rel,
+              projectRoot,
+              node,
+              c,
+              program,
+              model,
+              addRelation,
+              index: templateIndex,
+              report,
+            });
+          }
         }
       }
       ts.forEachChild(node, visit);
