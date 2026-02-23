@@ -206,6 +206,25 @@ export function enrichAngularModel(ctx: ExtractorContext) {
       classifierByName,
       addRelation,
       report,
+      markTarget: (target, stereo, tags) => {
+        addStereo(target, stereo);
+        if (tags) {
+          for (const [k, v] of Object.entries(tags)) setTag(target, `angular.${k}`, v);
+        }
+      },
     });
+  }
+
+
+  // Post-pass: mark HTTP interceptors based on DI provider registrations.
+  for (const r of model.relations ?? []) {
+    if (r.kind !== 'DI') continue;
+    const tv = (k: string) => (r.taggedValues ?? []).find((t) => t.key === k)?.value;
+    const provide = tv('provide') ?? tv('token') ?? '';
+    if (provide !== 'HTTP_INTERCEPTORS') continue;
+    const target = model.classifiers.find((c) => c.id === r.targetId);
+    if (!target) continue;
+    addStereo(target, 'AngularInterceptor');
+    setTag(target, 'angular.interceptor', 'true');
   }
 }

@@ -53,19 +53,56 @@ export class LazyModule {}
 `,
     );
 
+
+    write(
+      path.join(dir, 'src', 'guard.ts'),
+      `import { Injectable } from './ng';
+@Injectable({})
+export class AuthGuard {}
+`,
+    );
+
+    write(
+      path.join(dir, 'src', 'resolver.ts'),
+      `import { Injectable } from './ng';
+@Injectable({})
+export class DataResolver {}
+`,
+    );
+
+    write(
+      path.join(dir, 'src', 'http.ts'),
+      `export const HTTP_INTERCEPTORS = 'HTTP_INTERCEPTORS';
+`,
+    );
+
+    write(
+      path.join(dir, 'src', 'interceptor.ts'),
+      `import { Injectable } from './ng';
+@Injectable({})
+export class AuthInterceptor {}
+`,
+    );
+
     write(
       path.join(dir, 'src', 'app.module.ts'),
       `import { NgModule } from './ng';
 import { RouterModule, Routes } from './router';
 import { A } from './a';
+import { AuthGuard } from './guard';
+import { DataResolver } from './resolver';
+import { HTTP_INTERCEPTORS } from './http';
+import { AuthInterceptor } from './interceptor';
 
 export const routes: Routes = [
-  { path: 'a', component: A },
+  { path: 'a', component: A, canActivate: [AuthGuard], resolve: { data: DataResolver } },
   { path: 'lazy', loadChildren: () => import('./lazy').then(m => m.LazyModule) },
+  { path: 'cmp', loadComponent: () => import('./a').then(m => m.A) },
 ];
 
 @NgModule({
   imports: [RouterModule.forRoot(routes)],
+  providers: [{ provide: HTTP_INTERCEPTORS, useClass: AuthInterceptor, multi: true }],
 })
 export class AppModule {}
 `,
@@ -127,5 +164,47 @@ export class AppModule {}
         (r.taggedValues ?? []).some((tv) => tv.key === 'role' && tv.value === 'loadChildren'),
     );
     expect(hasLazyTarget).toBe(true);
+
+    const guard = model.classifiers.find((c) => c.name === 'AuthGuard');
+    const resolver = model.classifiers.find((c) => c.name === 'DataResolver');
+    expect(guard).toBeTruthy();
+    expect(resolver).toBeTruthy();
+
+    const routeAHasGuard = rels.some(
+      (r) =>
+        r.kind === 'DEPENDENCY' &&
+        r.sourceId === routeA!.id &&
+        r.targetId === guard!.id &&
+        (r.taggedValues ?? []).some((tv) => tv.key === 'role' && tv.value === 'canActivate'),
+    );
+    expect(routeAHasGuard).toBe(true);
+
+    const routeAHasResolver = rels.some(
+      (r) =>
+        r.kind === 'DEPENDENCY' &&
+        r.sourceId === routeA!.id &&
+        r.targetId === resolver!.id &&
+        (r.taggedValues ?? []).some((tv) => tv.key === 'role' && tv.value === 'resolve') &&
+        (r.taggedValues ?? []).some((tv) => tv.key === 'resolveKey' && tv.value === 'data'),
+    );
+    expect(routeAHasResolver).toBe(true);
+
+    const routeCmp = routeClasses.find((c) => (c.taggedValues ?? []).some((tv) => tv.key === 'angular.routePath' && tv.value === 'cmp'));
+    expect(routeCmp).toBeTruthy();
+
+    const hasLoadComponent = rels.some(
+      (r) =>
+        r.kind === 'DEPENDENCY' &&
+        r.sourceId === routeCmp!.id &&
+        r.targetId === a!.id &&
+        (r.taggedValues ?? []).some((tv) => tv.key === 'role' && tv.value === 'loadComponent'),
+    );
+    expect(hasLoadComponent).toBe(true);
+
+    const interceptor = model.classifiers.find((c) => c.name === 'AuthInterceptor');
+    expect(interceptor).toBeTruthy();
+    const interceptorMarked = (interceptor!.stereotypes ?? []).some((s) => s.name === 'AngularInterceptor');
+    expect(interceptorMarked).toBe(true);
+
   });
 });

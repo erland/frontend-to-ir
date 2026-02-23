@@ -26,8 +26,9 @@ export function extractAngularRoutesFromSourceFile(args: {
   classifierByName: Map<string, IrClassifier>;
   addRelation: AddAngularRelation;
   report?: ExtractionReport;
+  markTarget?: (c: IrClassifier, stereo: string, tags?: Record<string, string>) => void;
 }) {
-  const { sf, rel, projectRoot, model, checker, classifierByName, addRelation, report } = args;
+  const { sf, rel, projectRoot, model, checker, classifierByName, addRelation, report, markTarget } = args;
 
   const routeClassifiersByKey = new Map<string, IrClassifier>();
 
@@ -86,7 +87,32 @@ export function extractAngularRoutesFromSourceFile(args: {
     return undefined;
   };
 
-  const parseLazyModuleName = (e: ts.Expression | undefined): { moduleName?: string; specifier?: string } => {
+    const readArrayIdentifierNames = (e: ts.Expression | undefined): string[] => {
+    if (!e) return [];
+    if (!ts.isArrayLiteralExpression(e)) return [];
+    const out: string[] = [];
+    for (const el of e.elements) {
+      const n = readIdentifierName(el as any);
+      if (n) out.push(n);
+    }
+    return out;
+  };
+
+  const readResolveTargets = (e: ts.Expression | undefined): { key: string; targetName: string }[] => {
+    if (!e) return [];
+    if (!ts.isObjectLiteralExpression(e)) return [];
+    const out: { key: string; targetName: string }[] = [];
+    for (const p of e.properties) {
+      if (!ts.isPropertyAssignment(p)) continue;
+      const key = ts.isIdentifier(p.name) ? p.name.text : ts.isStringLiteral(p.name) ? p.name.text : undefined;
+      if (!key) continue;
+      const targetName = readIdentifierName(p.initializer);
+      if (targetName) out.push({ key, targetName });
+    }
+    return out;
+  };
+
+const parseLazyModuleName = (e: ts.Expression | undefined): { moduleName?: string; specifier?: string } => {
     // Handles: () => import('./x').then(m => m.FooModule)
     if (!e) return {};
     if (!ts.isArrowFunction(e) && !ts.isFunctionExpression(e)) return {};
@@ -118,7 +144,7 @@ export function extractAngularRoutesFromSourceFile(args: {
 
   const addRouterEdge = (
     route: IrClassifier,
-    role: 'component' | 'loadChildren',
+    role: 'component' | 'loadChildren' | 'loadComponent' | 'canActivate' | 'canActivateChild' | 'canDeactivate' | 'canLoad' | 'canMatch' | 'resolve',
     targetName: string,
     node: ts.Node,
     extraTags: Record<string, string> = {},
@@ -130,14 +156,19 @@ export function extractAngularRoutesFromSourceFile(args: {
         { key: 'role', value: role },
         ...Object.entries(extraTags).map(([key, value]) => ({ key, value })),
       ]);
+      // Optional marking of target classifiers (guards/resolvers/etc.)
+      if (markTarget) {
+        if (role.startsWith('can')) markTarget(to, 'AngularGuard', { guardRole: role });
+        if (role === 'resolve') markTarget(to, 'AngularResolver', { resolveKey: extraTags.resolveKey ?? '' });
+      }
     } else if (report) {
       addFinding(report, {
-        kind: role === 'component' ? 'unresolvedRouteTarget' : 'unresolvedLazyModule',
+        kind: (role === 'loadChildren' || role === 'loadComponent') ? 'unresolvedLazyModule' : 'unresolvedRouteTarget',
         severity: 'warning',
         message:
-          role === 'component'
-            ? `Route target component '${targetName}' was not found as a classifier`
-            : `Lazy route module '${targetName}' was not found as a classifier`,
+          (role === 'loadChildren' || role === 'loadComponent')
+            ? `Lazy route target '${targetName}' was not found as a classifier`
+            : `Route target '${targetName}' was not found as a classifier`,
         location: { file: rel },
         tags: { role, target: targetName, ...extraTags },
       });
@@ -153,11 +184,16 @@ export function extractAngularRoutesFromSourceFile(args: {
       }
       const pathVal = readString(getObjectProp(el, 'path')) ?? '';
       const compName = readIdentifierName(getObjectProp(el, 'component'));
-      const lazyInfo = parseLazyModuleName(getObjectProp(el, 'loadChildren'));
-      const lazyName = lazyInfo.moduleName;
-      const lazy = !!lazyName;
 
-      const target = compName ?? lazyName ?? '(unknown)';
+      const lazyChildrenInfo = parseLazyModuleName(getObjectProp(el, 'loadChildren'));
+      const lazyChildrenName = lazyChildrenInfo.moduleName;
+
+      const lazyComponentInfo = parseLazyModuleName(getObjectProp(el, 'loadComponent'));
+      const lazyComponentName = lazyComponentInfo.moduleName;
+
+      const lazy = !!lazyChildrenName || !!lazyComponentName;
+
+      const target = compName ?? lazyComponentName ?? lazyChildrenName ?? '(unknown)';
       const key = `${pathVal}::${target}::${idx}`;
       const routeName = `route:${pathVal || '(root)'} -> ${target}`;
       const routeC = ensureRouteClassifier(key, routeName, pathVal, lazy, el);
@@ -165,10 +201,26 @@ export function extractAngularRoutesFromSourceFile(args: {
       if (compName) {
         addRouterEdge(routeC, 'component', compName, el);
       }
-      if (lazyName) {
+      if (lazyChildrenName) {
         const extra: Record<string, string> = {};
-        if (lazyInfo.specifier) extra.specifier = lazyInfo.specifier;
-        addRouterEdge(routeC, 'loadChildren', lazyName, el, extra);
+        if (lazyChildrenInfo.specifier) extra.specifier = lazyChildrenInfo.specifier;
+        addRouterEdge(routeC, 'loadChildren', lazyChildrenName, el, extra);
+      }
+      if (lazyComponentName) {
+        const extra: Record<string, string> = {};
+        if (lazyComponentInfo.specifier) extra.specifier = lazyComponentInfo.specifier;
+        addRouterEdge(routeC, 'loadComponent', lazyComponentName, el, extra);
+      }
+
+      // Guards
+      for (const gf of ['canActivate', 'canActivateChild', 'canDeactivate', 'canLoad', 'canMatch'] as const) {
+        const names = readArrayIdentifierNames(getObjectProp(el, gf));
+        for (const n of names) addRouterEdge(routeC, gf, n, el);
+      }
+
+      // Resolvers: resolve: { key: Resolver }
+      for (const rt of readResolveTargets(getObjectProp(el, 'resolve'))) {
+        addRouterEdge(routeC, 'resolve', rt.targetName, el, { resolveKey: rt.key });
       }
       idx++;
     }
