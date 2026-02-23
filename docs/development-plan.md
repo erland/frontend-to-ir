@@ -151,7 +151,7 @@ This plan is intentionally structured so **each step can be implemented in a sin
 **Tasks:**
 - Add unresolved/external symbol tracking
 - Implement `--report` Markdown output
-- Implement `--fail-on-unresolved`, `--max-files`, `--framework`, `--include-deps`, `--include-framework-edges`
+- Implement `--fail-on-unresolved`, `--max-files`, `--framework`, `--deps`, `--include-framework-edges`
 - Add end-to-end tests for flags
 
 **Exit criteria:**

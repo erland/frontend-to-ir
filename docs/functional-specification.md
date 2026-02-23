@@ -53,7 +53,7 @@ The tool shall provide a CLI executable (Node.js) with:
 - `--framework <auto|react|angular|none>`: analysis emphasis; default `auto`
 - `--exclude <glob>`: repeatable path excludes, evaluated against paths relative to `--source`
 - `--include-tests <bool>`: whether to include test folders; default `false`
-- `--include-deps <bool>`: include dependency relations beyond structural associations (imports, usage); default `false`
+- `--deps <mode>`: include dependency relations beyond structural associations (imports, usage); default `false`
 - `--include-framework-edges <bool>`: include React RENDER / Angular DI edges; default `true`
 - `--report <file>`: optional Markdown report path
 - `--fail-on-unresolved <bool>`: nonzero exit if unresolved symbols exceed 0; default `false`

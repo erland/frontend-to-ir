@@ -12,7 +12,7 @@ function readJson(p: string): any {
 }
 
 describe('CLI options integration', () => {
-  test('--include-deps toggles DEPENDENCY relations', async () => {
+  test('--deps toggles DEPENDENCY relations', async () => {
     const dir = mkTmpDir();
     fs.writeFileSync(
       path.join(dir, 'a.ts'),

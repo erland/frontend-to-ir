@@ -38,8 +38,18 @@ app.post("/v1/ir", upload.single("inputZip"), async (req, res) => {
     // It expects --source and --out, and uses --framework auto|react|angular|none.
     const framework = (mode === "react" || mode === "angular") ? mode : "none";
 
+    const rawDeps = String(req.body.deps ?? '').trim().toLowerCase();
+    const includeDeps = rawDeps in {'1':1,'true':1,'yes':1,'y':1,'on':1,'all':1,'calls':1};
+
+
     // Run: node <cli.js> --framework <framework> --source <dir> --out <file>
-    await execOrThrow("node", [CLI, "--framework", framework, "--source", projectDir, "--out", outFile], {
+    const args = [CLI, "--framework", framework, "--source", projectDir, "--out", outFile];
+    if (includeDeps) {
+      // frontend-to-ir CLI: --deps all|none
+      args.push("--deps", "all");
+    }
+
+    await execOrThrow("node", args, {
       timeoutMs: 5 * 60_000,
     });
 
