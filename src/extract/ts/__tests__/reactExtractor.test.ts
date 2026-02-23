@@ -195,6 +195,14 @@ export function Consumer() {
   return <div>{ctx.userId}</div>;
 }
 
+export function ConsumerJsx() {
+  return (
+    <UserContext.Consumer>
+      {(ctx) => <span>{ctx.userId}</span>}
+    </UserContext.Consumer>
+  );
+}
+
 export function Provider() {
   return (
     <UserContext.Provider value={{ userId: '1' }}>
@@ -215,8 +223,10 @@ export function Provider() {
     expect(tv(ctxClassifier, 'react.contextType')).toContain('Ctx');
 
     const consumer = model.classifiers.find((c) => c.name === 'Consumer')!;
+    const consumerJsx = model.classifiers.find((c) => c.name === 'ConsumerJsx')!;
     const provider = model.classifiers.find((c) => c.name === 'Provider')!;
     expect(consumer.kind).toBe('COMPONENT');
+    expect(consumerJsx.kind).toBe('COMPONENT');
     expect(provider.kind).toBe('COMPONENT');
 
     const di = (model.relations ?? []).filter((r) => r.kind === 'DI');
@@ -233,8 +243,16 @@ export function Provider() {
         (r.taggedValues ?? []).some((t) => t.key === 'origin' && t.value === 'provider'),
     );
 
+    const hasConsumerJsx = di.some(
+      (r) =>
+        r.sourceId === consumerJsx.id &&
+        r.targetId === ctxClassifier!.id &&
+        (r.taggedValues ?? []).some((t) => t.key === 'origin' && t.value === 'consumer'),
+    );
+
     expect(hasUseContext).toBe(true);
     expect(hasProvider).toBe(true);
+    expect(hasConsumerJsx).toBe(true);
   });
 
 });

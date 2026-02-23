@@ -116,6 +116,10 @@ export function addUseContextAndProviderEdges(rctx: ReactWorkContext, ownerByNod
 
     const relFile = toPosixPath(path.relative(projectRoot, sf.fileName));
 
+    const ownerNameFor = (n: ts.Node): string => {
+      return ownerByNode.get(n) ?? ownerByNode.get(findEnclosingFunctionOrClass(n)) ?? '';
+    };
+
     const visit = (n: ts.Node) => {
       // useContext(Ctx)
       if (ts.isCallExpression(n)) {
@@ -124,7 +128,7 @@ export function addUseContextAndProviderEdges(rctx: ReactWorkContext, ownerByNod
         if (calleeName === 'useContext') {
           const arg0 = n.arguments[0];
           const ctxName = arg0 && ts.isIdentifier(arg0) ? arg0.text : undefined;
-          const ownerName = ownerByNode.get(n) ?? ownerByNode.get(findEnclosingFunctionOrClass(n)) ?? '';
+          const ownerName = ownerNameFor(n);
           if (ctxName && ownerName) {
             const from = classifierByFileAndName.get(`${relFile}::${ownerName}`);
             const toId = contextByName.get(ctxName);
@@ -149,23 +153,24 @@ export function addUseContextAndProviderEdges(rctx: ReactWorkContext, ownerByNod
       // <Ctx.Provider>
       if (ts.isJsxSelfClosingElement(n) || ts.isJsxOpeningElement(n)) {
         const tagName = n.tagName;
-        if (ts.isPropertyAccessExpression(tagName) && tagName.name.text === 'Provider') {
+        if (ts.isPropertyAccessExpression(tagName) && (tagName.name.text === 'Provider' || tagName.name.text === 'Consumer')) {
           const ctxName = safeNodeText(tagName.expression, sf);
-          const ownerName = ownerByNode.get(n) ?? '';
+          const origin = tagName.name.text === 'Provider' ? 'provider' : 'consumer';
+          const ownerName = ownerNameFor(n);
           const from = ownerName ? classifierByFileAndName.get(`${relFile}::${ownerName}`) : undefined;
           const toId = contextByName.get(ctxName);
           if (from && toId) {
-            addDi(rctx, sf, from.id, toId, n, 'provider');
+            addDi(rctx, sf, from.id, toId, n, origin);
           } else if (from && !toId && rctx.report) {
             addFinding(rctx.report, {
               kind: 'unresolvedContext',
               severity: 'warning',
-              message: `JSX Provider for '${ctxName}' but no matching context classifier was found`,
+              message: `JSX ${origin} for '${ctxName}' but no matching context classifier was found`,
               location: (() => {
                 const src = rctx.sourceRefForNode(sf, n);
                 return { file: src.file, line: src.line ?? undefined, column: src.col ?? undefined };
               })(),
-              tags: { owner: ownerName, context: ctxName, origin: 'provider' },
+              tags: { owner: ownerName, context: ctxName, origin },
             });
           }
         }
