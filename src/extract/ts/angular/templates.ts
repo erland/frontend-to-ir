@@ -6,7 +6,8 @@ import type { IrClassifier, IrRelationKind, IrTaggedValue } from '../../../ir/ir
 import type { ExtractionReport } from '../../../report/extractionReport';
 import { addFinding } from '../../../report/reportBuilder';
 import { hashId } from '../../../util/id';
-import { sourceRefForNode } from './util';
+import { sourceRefForNode, toPosixPath } from './util';
+import { ensurePackageHierarchy } from '../packageHierarchy';
 import type { AddAngularRelation } from './routing';
 
 function tag(key: string, value: string): IrTaggedValue {
@@ -78,6 +79,10 @@ function extractComponentElementNames(selector: string): string[] {
 
 function ensureTemplateRef(model: { classifiers: IrClassifier[] }, sf: ts.SourceFile, node: ts.Node, projectRoot: string, refKind: string, refName: string): IrClassifier {
   const key = `angular:templateRef:${refKind}:${refName}`;
+  const relFile = toPosixPath(path.relative(projectRoot, sf.fileName));
+  const pkgDir = toPosixPath(path.dirname(relFile));
+  const dirParts = pkgDir === '.' ? [] : pkgDir.split('/').filter(Boolean);
+  const pkgId = ensurePackageHierarchy(model as any, ['angular', 'templateRef', refKind, ...dirParts], 'virtual');
   const id = hashId('c:', key);
   let c = model.classifiers.find((x) => x.id === id);
   if (c) return c;
@@ -87,6 +92,7 @@ function ensureTemplateRef(model: { classifiers: IrClassifier[] }, sf: ts.Source
     kind: 'MODULE',
     name: `${refKind}:${refName}`,
     qualifiedName: key,
+    packageId: pkgId,
     stereotypes: [{ name: 'AngularTemplateRef' }],
     taggedValues: [tag('framework', 'angular'), tag('origin', 'template'), tag('template.refKind', refKind), tag('template.refName', refName)],
     source: sourceRefForNode(sf, node, projectRoot),
