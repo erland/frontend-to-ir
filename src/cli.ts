@@ -86,7 +86,7 @@ async function main(argv: string[]): Promise<number> {
     .option('--framework <mode>', 'auto|react|angular|none', 'auto')
     .option('--exclude <glob...>', 'Repeatable exclude globs (relative to --source)', [])
     .option('--include-tests [bool]', 'Include tests (default false)', (v) => v, undefined)
-    .option('--deps [mode]', 'Include import dependency relations (default false); values: true|false|all|none', (v) => v, undefined)
+    .option('--deps [mode]', 'Include import dependency relations (default true); values: true|false', (v) => v, undefined)
     .option(
       '--include-framework-edges [bool]',
       'Include React RENDER / Angular DI/module edges (default true)',
@@ -135,7 +135,7 @@ async function main(argv: string[]): Promise<number> {
       }
       const framework = (String(raw.framework ?? 'auto').toLowerCase() as FrameworkMode) || 'auto';
     const includeTests = parseBoolish(raw.includeTests, false);
-    const includeDeps = parseBoolish(raw.deps, false);
+    const includeDeps = parseBoolish(raw.deps, true);
     const includeFrameworkEdges = parseBoolish(raw.includeFrameworkEdges, true);
     const failOnUnresolved = parseBoolish(raw.failOnUnresolved, false);
     const maxFiles = parseIntish(raw.maxFiles);
