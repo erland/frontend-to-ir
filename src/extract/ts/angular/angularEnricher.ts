@@ -1,7 +1,6 @@
 import ts from 'typescript';
 import path from 'node:path';
 import type { IrClassifier, IrRelationKind, IrTaggedValue } from '../../../ir/irV1';
-import { hashId } from '../../../util/id';
 import type { ExtractorContext } from '../context';
 import { detectAngularDecorators, applyAngularClassifierDecoration } from './decorators';
 import { extractConstructorDiEdges, extractInjectFunctionEdges, extractProviderRegistrationEdges } from './di';
@@ -13,6 +12,7 @@ import { extractStandaloneComponentEdges } from './modules';
 import { extractInputsOutputs } from './inputsOutputs';
 import { extractAngularRoutesFromSourceFile } from './routing';
 import { getDecorators, sourceRefForNode, toPosixPath } from './util';
+import { emitRoutingRelation } from '../routing';
 
 export function enrichAngularModel(ctx: ExtractorContext) {
   const { program, projectRoot, scannedRel, model } = ctx;
@@ -77,20 +77,22 @@ export function enrichAngularModel(ctx: ExtractorContext) {
   ) => {
     if (includeFrameworkEdges === false) return;
     const key = edgeKey(kind, fromId, toId, tags);
-    if (existingKeys.has(key)) return;
-    const relFile = toPosixPath(path.relative(projectRoot, sf.fileName));
-    const role = tags.find((t) => t.key === 'role')?.value ?? '';
-    const id = hashId('r:', `${kind}:${relFile}:${fromId}->${toId}:${role}:${node.pos}`);
-    (model.relations ?? (model.relations = [])).push({
-      id,
+    emitRoutingRelation({
+      model,
+      includeEdges: true,
+      projectRoot,
+      sf,
       kind,
-      sourceId: fromId,
-      targetId: toId,
-      taggedValues: tags,
+      fromId,
+      toId,
+      node,
+      tags,
       stereotypes: [],
-      source: sourceRefForNode(sf, node, projectRoot),
+      idNamespace: kind,
+      existingKeys,
+      dedupeKey: key,
+      sourceRefForNode: (sff, nn) => sourceRefForNode(sff, nn, projectRoot),
     });
-    existingKeys.add(key);
   };
 
   for (const sf of program.getSourceFiles()) {

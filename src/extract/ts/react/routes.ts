@@ -3,15 +3,13 @@ import path from 'node:path';
 import { hashId } from '../../../util/id';
 import { safeNodeText } from '../util/safeText';
 import { normalizeRoutePath } from '../routing';
+import { emitRoutingRelation } from '../routing';
 import { addFinding } from '../../../report/reportBuilder';
 import type { ReactWorkContext } from './types';
 import { toPosixPath, unwrapParens } from './util';
 
 type RouteKind = 'jsx' | 'data';
 
-function ensureRelations(rctx: ReactWorkContext) {
-  rctx.model.relations = rctx.model.relations ?? [];
-}
 
 function addRouteRelation(
   rctx: ReactWorkContext,
@@ -22,19 +20,19 @@ function addRouteRelation(
   node: ts.Node,
   tags: { key: string; value: string }[],
 ) {
-  if (rctx.includeFrameworkEdges === false) return;
-  ensureRelations(rctx);
-  const relFile = toPosixPath(path.relative(rctx.projectRoot, sf.fileName));
-  const role = tags.find((t) => t.key === 'role')?.value ?? '';
-  const id = hashId('r:', `REACT_ROUTE:${relFile}:${fromId}->${toId}:${role}:${node.pos}`);
-  if (rctx.model.relations!.some((r) => r.id === id)) return;
-  rctx.model.relations!.push({
-    id,
+  emitRoutingRelation({
+    model: rctx.model,
+    includeEdges: rctx.includeFrameworkEdges !== false,
+    projectRoot: rctx.projectRoot,
+    sf,
     kind,
-    sourceId: fromId,
-    targetId: toId,
-    taggedValues: [{ key: 'origin', value: 'router' }, ...tags],
-    source: rctx.sourceRefForNode(sf, node),
+    fromId,
+    toId,
+    node,
+    tags: [{ key: 'origin', value: 'router' }, ...tags],
+    idNamespace: 'REACT_ROUTE',
+    dedupeById: true,
+    sourceRefForNode: (sff, nn) => rctx.sourceRefForNode(sff, nn),
   });
 }
 
