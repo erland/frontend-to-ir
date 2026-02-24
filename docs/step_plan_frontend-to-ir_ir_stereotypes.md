@@ -119,7 +119,11 @@ If other consumers still expect the old format:
 
 ---
 
-## Step 4 — Define a stable stereotype id strategy (critical)
+\1
+Deliverables:
+- `src/ir/stereotypes/stereotypeId.ts` (stable id strategy)
+- `docs/stereotype-id-strategy.md`
+
 ### Deliverables
 - A documented id convention in `docs/ir-stereotypes-contract.md` (or similar)
 - Implementation in registry module.

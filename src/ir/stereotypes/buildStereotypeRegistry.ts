@@ -8,6 +8,7 @@ import type {
   IrStereotypeDefinition,
   IrStereotypeRef,
 } from '../irV1';
+import { stableStereotypeId } from './stereotypeId';
 
 type OwnerKind = 'classifier' | 'attribute' | 'operation' | 'relation';
 
@@ -18,12 +19,6 @@ function getFramework(taggedValues?: { key: string; value: string }[]): string |
   return tv?.value ?? null;
 }
 
-function stableStereotypeId(framework: string | null, name: string): string {
-  // Deterministic and stable across runs. Step 4 will refine/standardize this strategy.
-  const fw = (framework ?? 'generic').replace(/[^a-zA-Z0-9_.-]/g, '_');
-  const nm = name.replace(/[^a-zA-Z0-9_.-]/g, '_');
-  return `st:${fw}.${nm}`;
-}
 
 function appliesToForOwnerKind(kind: OwnerKind): string[] {
   switch (kind) {
@@ -54,7 +49,7 @@ export function buildStereotypeRegistryFromLegacy(model: IrModel): IrModel {
 
   const addDefs = (owner: Owner, kind: OwnerKind) => {
     for (const s of owner.stereotypes ?? []) {
-      const id = stableStereotypeId(owner.framework, s.name);
+      const id = stableStereotypeId(owner.framework, s);
       if (!defsById.has(id)) {
         defsById.set(id, {
           id,
@@ -71,7 +66,7 @@ export function buildStereotypeRegistryFromLegacy(model: IrModel): IrModel {
   const mkRefs = (owner: Owner): IrStereotypeRef[] => {
     const refs: IrStereotypeRef[] = [];
     for (const s of owner.stereotypes ?? []) {
-      refs.push({ stereotypeId: stableStereotypeId(owner.framework, s.name), values: {} });
+      refs.push({ stereotypeId: stableStereotypeId(owner.framework, s), values: {} });
     }
     refs.sort((a, b) => a.stereotypeId.localeCompare(b.stereotypeId));
     return refs;
