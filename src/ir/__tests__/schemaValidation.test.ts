@@ -1,7 +1,7 @@
 import Ajv from 'ajv/dist/2020';
 
 import type { IrModel } from '../irV1';
-import irSchema from '../schema/ir-schema-v1.json';
+import irSchema from '../schema/ir-schema-v2.json';
 
 import { serializeIrJson } from '../writeIrJson';
 
@@ -30,7 +30,7 @@ function minimalValidModel(): IrModel {
 }
 
 describe('IR schema compliance', () => {
-  it('produces IR that validates against ir-schema-v1.json', () => {
+  it('produces IR that validates against ir-schema-v2.json', () => {
     const model = minimalValidModel();
 
     // Ensure what we serialize is also what we validate (no hidden transforms).

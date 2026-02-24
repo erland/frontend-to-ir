@@ -1,7 +1,7 @@
 /**
- * IR v1 data model — MUST match java-to-xmi IR schema.
+ * IR data model (v1 + v2 extensions) — MUST match java-to-xmi IR schema.
  *
- * Source of truth: src/ir/schema/ir-schema-v1.json
+ * Source of truth: src/ir/schema/ir-schema-v2.json (v2 adds stereotype registry + refs; v1 remains supported)
  */
 
 export type IrSchemaVersion = string;
@@ -15,6 +15,40 @@ export type IrStereotype = {
   name: string;
   qualifiedName?: string | null;
 };
+
+/**
+ * IR v2: Stereotype registry definition (tool-neutral).
+ */
+export type IrStereotypePropertyType = 'string' | 'boolean' | 'integer' | 'number';
+
+export type IrStereotypePropertyDefinition = {
+  name: string;
+  type: IrStereotypePropertyType;
+  isMulti: boolean;
+};
+
+export type IrStereotypeDefinition = {
+  /** Stable id referenced by IrStereotypeRef (e.g. st:frontend.Component). */
+  id: string;
+  /** UML stereotype name. */
+  name: string;
+  /** Optional qualified name (e.g. Frontend::Component). */
+  qualifiedName?: string | null;
+  /** Optional profile grouping name (e.g. Frontend). */
+  profileName?: string | null;
+  /** UML metaclass names this stereotype may apply to (e.g. Class, Property, Operation, Dependency). */
+  appliesTo?: string[];
+  /** Optional typed properties (tagged values) for the stereotype. */
+  properties?: IrStereotypePropertyDefinition[];
+};
+
+export type IrStereotypeRef = {
+  /** Reference to IrStereotypeDefinition.id */
+  stereotypeId: string;
+  /** Optional values for stereotype properties (reserved for future typed injection). */
+  values?: Record<string, unknown>;
+};
+
 
 export type IrSourceRef = {
   /** Path relative to --source/project root (never absolute). */
@@ -66,6 +100,7 @@ export type IrAttribute = {
   isFinal?: boolean;
   type: IrTypeRef;
   stereotypes?: IrStereotype[];
+  stereotypeRefs?: IrStereotypeRef[];
   taggedValues?: IrTaggedValue[];
   source?: IrSourceRef | null;
 };
@@ -86,6 +121,7 @@ export type IrOperation = {
   returnType: IrTypeRef;
   parameters?: IrParameter[];
   stereotypes?: IrStereotype[];
+  stereotypeRefs?: IrStereotypeRef[];
   taggedValues?: IrTaggedValue[];
   source?: IrSourceRef | null;
 };
@@ -100,6 +136,7 @@ export type IrClassifier = {
   attributes?: IrAttribute[];
   operations?: IrOperation[];
   stereotypes?: IrStereotype[];
+  stereotypeRefs?: IrStereotypeRef[];
   taggedValues?: IrTaggedValue[];
   source?: IrSourceRef | null;
 };
@@ -131,12 +168,14 @@ export type IrRelation = {
   targetId: string;
   name?: string | null;
   stereotypes?: IrStereotype[];
+  stereotypeRefs?: IrStereotypeRef[];
   taggedValues?: IrTaggedValue[];
   source?: IrSourceRef | null;
 };
 
 export type IrModel = {
   schemaVersion: IrSchemaVersion;
+  stereotypeDefinitions?: IrStereotypeDefinition[];
   packages?: IrPackage[];
   classifiers: IrClassifier[];
   relations?: IrRelation[];
@@ -146,6 +185,7 @@ export type IrModel = {
 export function createEmptyIrModel(): IrModel {
   return {
     schemaVersion: '1.0',
+    stereotypeDefinitions: [],
     classifiers: [],
     packages: [],
     relations: [],
