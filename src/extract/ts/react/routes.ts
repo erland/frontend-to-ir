@@ -2,6 +2,7 @@ import ts from 'typescript';
 import path from 'node:path';
 import { hashId } from '../../../util/id';
 import { safeNodeText } from '../util/safeText';
+import { normalizeRoutePath } from '../routing';
 import { addFinding } from '../../../report/reportBuilder';
 import type { ReactWorkContext } from './types';
 import { toPosixPath, unwrapParens } from './util';
@@ -173,7 +174,7 @@ function parseJsxRoutesInFile(rctx: ReactWorkContext, sf: ts.SourceFile, relFile
         const componentAttr = readJsxAttr(opening, 'Component');
         const indexAttr = readJsxAttr(opening, 'index');
 
-        const routePath = readJsxString(pathAttr) ?? '';
+        const routePath = normalizeRoutePath(readJsxString(pathAttr) ?? '');
         const index = readJsxBoolean(indexAttr);
 
         const routeC = ensureRouteClassifier(rctx, sf, relFile, 'jsx', routePath, index, n);
@@ -241,7 +242,7 @@ function parseDataRoutesArray(
 ) {
   for (const el of arr.elements) {
     if (!ts.isObjectLiteralExpression(el)) continue;
-    const pathVal = readStringLiteral(readObjProp(el, 'path')) ?? '';
+    const pathVal = normalizeRoutePath(readStringLiteral(readObjProp(el, 'path')) ?? '');
     const indexVal = readObjProp(el, 'index')?.kind === ts.SyntaxKind.TrueKeyword;
 
     const routeC = ensureRouteClassifier(rctx, sf, relFile, 'data', pathVal, indexVal, el);

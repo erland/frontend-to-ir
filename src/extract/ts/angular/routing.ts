@@ -1,5 +1,6 @@
 import ts from 'typescript';
 import { safeNodeText } from '../util/safeText';
+import { normalizeRoutePath } from '../routing';
 import type { IrModel, IrClassifier, IrTaggedValue, IrRelationKind } from '../../../ir/irV1';
 import type { ExtractionReport } from '../../../report/extractionReport';
 import { addFinding } from '../../../report/reportBuilder';
@@ -182,7 +183,7 @@ const parseLazyModuleName = (e: ts.Expression | undefined): { moduleName?: strin
         idx++;
         continue;
       }
-      const pathVal = readString(getObjectProp(el, 'path')) ?? '';
+      const pathVal = normalizeRoutePath(readString(getObjectProp(el, 'path')) ?? '');
       const compName = readIdentifierName(getObjectProp(el, 'component'));
 
       const lazyChildrenInfo = parseLazyModuleName(getObjectProp(el, 'loadChildren'));
