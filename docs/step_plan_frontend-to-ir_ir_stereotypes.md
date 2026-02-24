@@ -229,7 +229,10 @@ Deliverables:
 
 ---
 
-## Step 9 — Document the new IR stereotype contract for other producers
+\1
+Deliverable:
+- `docs/ir-stereotype-contract.md` (normative contract for third-party IR producers)
+
 ### Deliverables
 - `docs/ir-stereotypes-contract.md` covering:
   - `stereotypeDefinitions` format

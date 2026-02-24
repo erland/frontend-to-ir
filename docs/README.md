@@ -3,3 +3,4 @@
 - Current stereotype inventory: `stereotypes-inventory.md`
 - Stereotype id strategy: `stereotype-id-strategy.md`
 - Tagged values conventions: `tagged-values-conventions.md`
+- IR stereotype contract (for third-party producers): `ir-stereotype-contract.md`
