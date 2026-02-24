@@ -39,7 +39,9 @@ This enables java-to-xmi (once modified) to generate UML/XMI containing any newl
 
 ---
 
-## Step 1 — Inventory existing stereotypes emitted today
+\1
+Deliverable: `docs/stereotypes-inventory.md` (this repo’s current emitted stereotypes).
+
 ### Deliverables
 - `docs/stereotypes-frontend-to-ir-current.md` listing:
   - each stereotype name emitted
