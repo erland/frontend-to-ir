@@ -90,7 +90,7 @@ function ensureTemplateRef(model: { classifiers: IrClassifier[] }, sf: ts.Source
   c = {
     id,
     kind: 'MODULE',
-    name: `${refKind}:${refName}`,
+    name: refName,
     qualifiedName: key,
     packageId: pkgId,
     stereotypes: [{ name: 'AngularTemplateRef' }],
