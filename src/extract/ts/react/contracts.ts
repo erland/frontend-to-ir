@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { hashId } from '../../../util/id';
 import type { IrClassifier, IrTaggedValue } from '../../../ir/irV1';
+import { ensurePackageHierarchy } from '../packageHierarchy';
 import type { ReactWorkContext } from './types';
 import { toPosixPath, sourceRefForNode as reactSourceRefForNode } from './util';
 import { safeNodeText } from '../util/safeText';
@@ -13,6 +14,12 @@ function tag(key: string, value: string): IrTaggedValue {
 
 function ensureContract(rctx: ReactWorkContext, sf: ts.SourceFile, node: ts.Node, owner: IrClassifier, propsTypeText?: string, events?: { name: string; sig?: string }[]): IrClassifier {
   const relFile = toPosixPath(path.relative(rctx.projectRoot, sf.fileName));
+  // Place React contracts in a virtual hierarchical package chain:
+  // react / contract / <dir...>
+  const dir = toPosixPath(path.dirname(relFile));
+  const dirParts = dir === '.' || dir === '' ? [] : dir.split('/');
+  const virtualPkgId = ensurePackageHierarchy(rctx.model as any, ['react', 'contract', ...dirParts], 'virtual');
+
   const key = `react:contract:${relFile}::${owner.name}`;
   const id = hashId('c:', key);
 
@@ -24,7 +31,7 @@ function ensureContract(rctx: ReactWorkContext, sf: ts.SourceFile, node: ts.Node
     kind: 'MODULE',
     name: `${owner.name}Contract`,
     qualifiedName: key,
-    packageId: owner.packageId,
+    packageId: virtualPkgId,
     stereotypes: [{ name: 'ReactContract' }],
     taggedValues: [
       tag('framework', 'react'),

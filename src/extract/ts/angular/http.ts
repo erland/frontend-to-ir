@@ -6,6 +6,12 @@ import { hashId } from '../../../util/id';
 import { safeNodeText } from '../util/safeText';
 import { sourceRefForNode } from './util';
 import type { AddAngularRelation } from './routing';
+import path from 'node:path';
+import { ensurePackageHierarchy } from '../packageHierarchy';
+
+function toPosix(p: string): string {
+  return p.split(path.sep).join('/');
+}
 
 const HTTP_METHODS = new Set(['get', 'post', 'put', 'delete', 'patch', 'head', 'options', 'request']);
 
@@ -64,7 +70,7 @@ function isIdentifierNamed(expr: ts.Expression, name: string): boolean {
 function ensureEndpointClassifier(args: {
   sf: ts.SourceFile;
   projectRoot: string;
-  model: { classifiers: IrClassifier[] };
+  model: { classifiers: IrClassifier[]; packages?: any[] };
   method: string;
   url: string;
   urlKind?: string;
@@ -77,11 +83,17 @@ function ensureEndpointClassifier(args: {
   let c = model.classifiers.find((x) => x.id === id);
   if (c) return c;
 
+  const relFile = toPosix(path.relative(projectRoot, sf.fileName));
+  const pkgDir = toPosix(path.dirname(relFile));
+  const dirParts = pkgDir === '.' ? [] : pkgDir.split('/').filter(Boolean);
+  const pkgId = ensurePackageHierarchy(model as any, ['http', 'endpoints', 'angular', ...dirParts], 'virtual');
+
   c = {
     id,
     kind: 'MODULE',
     name: `HTTP ${upper(method)} ${url}`,
     qualifiedName: key,
+    packageId: pkgId,
     stereotypes: [{ name: 'HttpEndpoint' }],
     taggedValues: [
       tag('framework', 'angular'),
@@ -103,7 +115,7 @@ export function extractAngularHttpEdges(args: {
   node: ts.ClassDeclaration;
   c: IrClassifier;
   checker: ts.TypeChecker;
-  model: { classifiers: IrClassifier[]; relations?: unknown[] };
+  model: { classifiers: IrClassifier[]; packages?: any[]; relations?: unknown[] };
   addRelation: AddAngularRelation;
   report?: ExtractionReport;
 }) {

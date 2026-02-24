@@ -1,6 +1,6 @@
 import ts from 'typescript';
 
-import type { IrClassifier, IrRelation } from '../../../ir/irV1';
+import type { IrModel, IrRelation } from '../../../ir/irV1';
 import type { ExtractionReport } from '../../../report/extractionReport';
 import type { EnsureFileModuleFn, IrPackageInfo } from '../context';
 
@@ -14,7 +14,7 @@ export function extractPublicApiSurface(args: {
   compilerOptions: ts.CompilerOptions;
   projectRoot: string;
   scannedRel: string[];
-  model: { classifiers: IrClassifier[] };
+  model: IrModel;
   pkgByDir: Map<string, IrPackageInfo>;
   ensureFileModule: EnsureFileModuleFn;
   report?: ExtractionReport;

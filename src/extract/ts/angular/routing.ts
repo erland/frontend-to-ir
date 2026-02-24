@@ -6,6 +6,12 @@ import type { ExtractionReport } from '../../../report/extractionReport';
 import { addFinding } from '../../../report/reportBuilder';
 import { hashId } from '../../../util/id';
 import { sourceRefForNode } from './util';
+import { ensurePackageHierarchy } from '../packageHierarchy';
+import path from 'node:path';
+
+function toPosix(p: string): string {
+  return p.split(path.sep).join('/');
+}
 
 export type AddAngularRelation = (
   sf: ts.SourceFile,
@@ -36,11 +42,18 @@ export function extractAngularRoutesFromSourceFile(args: {
   const ensureRouteClassifier = (key: string, routeName: string, routePath: string, lazy: boolean, sourceNode: ts.Node) => {
     if (routeClassifiersByKey.has(key)) return routeClassifiersByKey.get(key)!;
     const id = hashId('c:', `angular-route:${rel}:${key}:${sourceNode.pos}`);
+
+    const relFile = toPosix(path.relative(projectRoot, sf.fileName));
+    const pkgDir = toPosix(path.dirname(relFile));
+    const dirParts = pkgDir === '.' ? [] : pkgDir.split('/').filter(Boolean);
+    const pkgId = ensurePackageHierarchy(model as any, ['angular', 'routes', ...dirParts], 'virtual');
+
     const c: IrClassifier = {
       id,
       kind: 'MODULE',
       name: routeName,
       qualifiedName: `${rel}#route:${routePath}`,
+      packageId: pkgId,
       stereotypes: [{ name: 'AngularRoute' }],
       taggedValues: [
         { key: 'framework', value: 'angular' },

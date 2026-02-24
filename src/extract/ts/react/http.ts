@@ -6,6 +6,7 @@ import { addFinding } from '../../../report/reportBuilder';
 import type { ReactWorkContext } from './types';
 import { toPosixPath, sourceRefForNode as reactSourceRefForNode } from './util';
 import type { IrClassifier, IrTaggedValue } from '../../../ir/irV1';
+import { ensurePackageHierarchy } from '../packageHierarchy';
 
 function tag(key: string, value: string): IrTaggedValue {
   return { key, value };
@@ -23,8 +24,8 @@ function ensureEndpointClassifier(rctx: ReactWorkContext, sf: ts.SourceFile, nod
 
   const relFile = toPosixPath(path.relative(rctx.projectRoot, sf.fileName));
   const pkgDir = toPosixPath(path.dirname(relFile));
-  const pkgKey = pkgDir === '.' ? '' : pkgDir;
-  const pkgId = hashId('pkg:', pkgKey === '' ? '(root)' : pkgKey);
+  const dirParts = pkgDir === '.' ? [] : pkgDir.split('/').filter(Boolean);
+  const pkgId = ensurePackageHierarchy(rctx.model as any, ['http', 'endpoints', 'react', ...dirParts], 'virtual');
 
   const c: IrClassifier = {
     id,

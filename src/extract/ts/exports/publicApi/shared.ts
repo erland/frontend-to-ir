@@ -1,9 +1,10 @@
 import ts from 'typescript';
 import path from 'node:path';
 
-import type { IrClassifier, IrRelationKind, IrSourceRef, IrTaggedValue } from '../../../../ir/irV1';
+import type { IrClassifier, IrModel, IrRelationKind, IrSourceRef, IrTaggedValue } from '../../../../ir/irV1';
 import { hashId, toPosixPath } from '../../../../util/id';
 import type { IrPackageInfo } from '../../context';
+import { ensurePackageHierarchy } from '../../packageHierarchy';
 
 export function tag(key: string, value: string): IrTaggedValue {
   return { key, value };
@@ -24,7 +25,7 @@ export function ensurePkgIdForRel(relFile: string, pkgByDir: Map<string, IrPacka
 }
 
 export function ensureApiExportClassifier(args: {
-  model: { classifiers: IrClassifier[] };
+  model: IrModel;
   projectRoot: string;
   relFile: string;
   exportName: string;
@@ -33,6 +34,14 @@ export function ensureApiExportClassifier(args: {
   pkgId: string;
 }): IrClassifier {
   const { model, projectRoot, relFile, exportName, node, sf, pkgId } = args;
+  // Place ApiExport classifiers in a virtual hierarchical package chain:
+  // publicApi / export / <dir...> / <fileBase>
+  const rel = toPosixPath(relFile);
+  const dir = toPosixPath(path.dirname(rel));
+  const dirParts = dir === '.' || dir === '' ? [] : dir.split('/');
+  const fileBase = path.basename(rel).replace(/\.[^.]+$/, '');
+  const virtualPkgId = ensurePackageHierarchy(model, ['publicApi', 'export', ...dirParts, fileBase], 'virtual');
+
   const key = `publicApi:export:${relFile}:${exportName}`;
   const id = hashId('c:', key);
   const existing = model.classifiers.find((c) => c.id === id);
@@ -43,7 +52,7 @@ export function ensureApiExportClassifier(args: {
     kind: 'MODULE',
     name: exportName,
     qualifiedName: key,
-    packageId: pkgId,
+    packageId: virtualPkgId,
     stereotypes: [{ name: 'ApiExport' }],
     taggedValues: [tag('origin', 'publicApi'), tag('exportedFrom', relFile)],
     source: sourceRefForNode(sf, node, projectRoot),

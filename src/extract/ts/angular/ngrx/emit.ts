@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import path from 'node:path';
 import type { IrClassifier, IrRelationKind, IrTaggedValue } from '../../../../ir/irV1';
 import { hashId } from '../../../../util/id';
 import { sourceRefForNode } from '../util';
@@ -6,6 +7,11 @@ import { addFinding } from '../../../../report/reportBuilder';
 import type { ExtractionReport } from '../../../../report/extractionReport';
 import type { AddAngularRelation } from '../routing';
 import type { NgRxConceptDecl, NgRxConceptKind, NgRxDispatchFinding, NgRxSelectFinding, NgRxInlineOfTypeFinding, NgRxOfTypeFinding } from './detect';
+import { ensurePackageHierarchy } from '../../packageHierarchy';
+
+function toPosix(p: string): string {
+  return p.split(path.sep).join('/');
+}
 
 function tag(key: string, value: string): IrTaggedValue {
   return { key, value };
@@ -23,8 +29,14 @@ function stereotypeForKind(kind: NgRxConceptKind): string {
   return 'NgRxEffect';
 }
 
+function kindSegment(kind: NgRxConceptKind): string {
+  if (kind === 'action') return 'actions';
+  if (kind === 'selector') return 'selectors';
+  return 'effects';
+}
+
 function ensureConcept(args: {
-  model: { classifiers: IrClassifier[] };
+  model: { classifiers: IrClassifier[]; packages?: any[] };
   sf: ts.SourceFile;
   projectRoot: string;
   node: ts.Node;
@@ -37,11 +49,17 @@ function ensureConcept(args: {
   const existing = model.classifiers.find((c) => c.id === id);
   if (existing) return existing;
 
+  const relFile = toPosix(path.relative(projectRoot, sf.fileName));
+  const pkgDir = toPosix(path.dirname(relFile));
+  const dirParts = pkgDir === '.' ? [] : pkgDir.split('/').filter(Boolean);
+  const pkgId = ensurePackageHierarchy(model as any, ['angular', 'ngrx', kindSegment(kind), ...dirParts], 'virtual');
+
   const c: IrClassifier = {
     id,
     kind: 'MODULE',
     name: ident,
     qualifiedName: qualifiedKey,
+    packageId: pkgId,
     stereotypes: [{ name: stereotypeForKind(kind) }],
     taggedValues: [tag('framework', 'angular'), tag('origin', 'state')],
     source: sourceRefForNode(sf, node, projectRoot),
@@ -54,7 +72,7 @@ function ensureConcept(args: {
 export function emitNgRxConceptIndex(args: {
   conceptDecls: NgRxConceptDecl[];
   projectRoot: string;
-  model: { classifiers: IrClassifier[] };
+  model: { classifiers: IrClassifier[]; packages?: any[] };
 }): NgRxMaps {
   const { conceptDecls, projectRoot, model } = args;
   const maps: NgRxMaps = { actionsByIdent: new Map(), selectorsByIdent: new Map(), effectsByIdent: new Map() };

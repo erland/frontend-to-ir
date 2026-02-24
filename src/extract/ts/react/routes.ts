@@ -7,6 +7,7 @@ import { emitRoutingRelation } from '../routing';
 import { addFinding } from '../../../report/reportBuilder';
 import type { ReactWorkContext } from './types';
 import { toPosixPath, unwrapParens } from './util';
+import { ensurePackageHierarchy } from '../packageHierarchy';
 
 type RouteKind = 'jsx' | 'data';
 
@@ -138,11 +139,17 @@ function ensureRouteClassifier(
 
   const id = hashId('c:', `react-route:${routeKind}:${relFile}:${routePath}:${node.pos}`);
   const name = routePath ? `Route(${routePath})` : index ? 'Route(index)' : 'Route';
+
+  const pkgDir = toPosixPath(path.dirname(relFile));
+  const dirParts = pkgDir === '.' ? [] : pkgDir.split('/').filter(Boolean);
+  const pkgId = ensurePackageHierarchy(rctx.model as any, ['react', 'routes', ...dirParts], 'virtual');
+
   const c = {
     id,
     kind: 'MODULE' as const,
     name,
     qualifiedName: `${relFile}#react-route:${routePath || (index ? 'index' : '')}`,
+    packageId: pkgId,
     stereotypes: [{ name: 'ReactRoute' }],
     taggedValues: [
       { key: 'framework', value: 'react' },

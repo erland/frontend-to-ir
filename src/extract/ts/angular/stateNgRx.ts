@@ -19,7 +19,7 @@ export function buildNgRxIndex(args: {
   program: ts.Program;
   projectRoot: string;
   scannedRel: string[];
-  model: { classifiers: IrClassifier[] };
+  model: { classifiers: IrClassifier[]; packages?: any[] };
 }): NgRxMaps {
   const { program, projectRoot, scannedRel, model } = args;
 

@@ -6,6 +6,7 @@ import { addFinding } from '../../../report/reportBuilder';
 import { hashId } from '../../../util/id';
 import type { ReactWorkContext } from './types';
 import { toPosixPath } from './util';
+import { ensurePackageHierarchy } from '../packageHierarchy';
 
 function hasContextStereo(c: IrClassifier): boolean {
   return (c.stereotypes ?? []).some((st) => st.name === 'ReactContext');
@@ -15,8 +16,8 @@ function ensureContextClassifier(rctx: ReactWorkContext, sf: ts.SourceFile, node
   const { projectRoot, model, classifierByFileAndName } = rctx;
   const relFile = toPosixPath(path.relative(projectRoot, sf.fileName));
   const pkgDir = toPosixPath(path.dirname(relFile));
-  const pkgKey = pkgDir === '.' ? '' : pkgDir;
-  const pkgId = hashId('pkg:', pkgKey === '' ? '(root)' : pkgKey);
+  const dirParts = pkgDir === '.' ? [] : pkgDir.split('/').filter(Boolean);
+  const pkgId = ensurePackageHierarchy(model as any, ['react', 'context', ...dirParts], 'virtual');
 
   const key = `${relFile}::${name}`;
   let c = classifierByFileAndName.get(key);

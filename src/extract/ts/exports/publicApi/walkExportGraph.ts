@@ -1,7 +1,7 @@
 import ts from 'typescript';
 import path from 'node:path';
 
-import type { IrClassifier } from '../../../../ir/irV1';
+import type { IrClassifier, IrModel } from '../../../../ir/irV1';
 import type { IrPackageInfo } from '../../context';
 import { ensureApiExportClassifier, ensurePkgIdForRel, hasExportModifier } from './shared';
 
@@ -9,7 +9,7 @@ export function walkPublicApiExportGraph(args: {
   program: ts.Program;
   projectRoot: string;
   scannedRel: string[];
-  model: { classifiers: IrClassifier[] };
+  model: IrModel;
   pkgByDir: Map<string, IrPackageInfo>;
 }): { exportByFileAndName: Map<string, IrClassifier> } {
   const { program, projectRoot, scannedRel, model, pkgByDir } = args;
