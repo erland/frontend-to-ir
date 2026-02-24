@@ -195,7 +195,11 @@ For any stereotype that emits values:
 
 ---
 
-## Step 7 — Add/Update tests with golden IR snapshots
+\1
+Deliverables:
+- `src/ir/__tests__/goldenIrV2Snapshot.test.ts`
+- `src/ir/__tests__/__fixtures__/golden_ir_v2_stereotypes.json`
+
 ### Deliverables
 - One or more fixtures repos under `src/test/fixtures/` (or your existing pattern).
 - Golden output file:
