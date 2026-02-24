@@ -264,3 +264,8 @@ After implementing this plan:
 ## Additional alignment step
 
 - Copy `docs/ir/ir-schema-v2.json` into `src/ir/schema/ir-schema-v2.json` and use it as the reference schema for validation/tests.
+
+
+## V2-only output note
+
+This repo now emits **IR schema v2-only** JSON: legacy `*.stereotypes[]` arrays are stripped from the final serialized output after v2 refs are built.

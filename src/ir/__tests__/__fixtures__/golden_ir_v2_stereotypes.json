@@ -19,12 +19,7 @@
           "values": {}
         }
       ],
-      "stereotypes": [
-        {
-          "name": "ReactComponent",
-          "qualifiedName": null
-        }
-      ],
+      "stereotypes": [],
       "taggedValues": [
         {
           "key": "framework",
@@ -52,12 +47,7 @@
           "values": {}
         }
       ],
-      "stereotypes": [
-        {
-          "name": "ReactRoute",
-          "qualifiedName": null
-        }
-      ],
+      "stereotypes": [],
       "taggedValues": [
         {
           "key": "framework",

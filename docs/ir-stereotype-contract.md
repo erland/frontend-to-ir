@@ -12,7 +12,9 @@ IR schema v2 adds:
 - `IrModel.stereotypeDefinitions[]`: a registry of stereotype definitions (id, name, where it applies, optional properties)
 - `*.stereotypeRefs[]`: references from IR elements to the registry (by id), with optional values
 
-Legacy field `*.stereotypes[]` (name/qualifiedName) may still be present for backward compatibility, but **new producers should prefer**
+This repo emits a **v2-only JSON payload** and strips the legacy field `*.stereotypes[]` **at serialization time**.
+
+Legacy field `*.stereotypes[]` (name/qualifiedName) may still be present in intermediate in-memory models, but **new producers should prefer**
 `stereotypeDefinitions + stereotypeRefs`.
 
 ## Required invariants

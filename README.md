@@ -1,6 +1,6 @@
 # frontend-to-ir (TypeScript/JavaScript/React/Angular → IR JSON)
 
-This repository contains a command-line tool that analyzes **TypeScript**, **JavaScript**, **React**, and **Angular** codebases and emits a **language-agnostic IR JSON** that matches the **IR v1** used by `java-to-xmi` (the emitter toolchain).
+This repository contains a command-line tool that analyzes **TypeScript**, **JavaScript**, **React**, and **Angular** codebases and emits a **language-agnostic IR JSON** that matches the **IR schema v2** used by `java-to-xmi` (the emitter toolchain).
 
 The IR output is designed to be consumed by a separate emitter (e.g., your `java-to-xmi` multi-module build) to produce UML/XMI.
 
@@ -22,10 +22,10 @@ The IR output is designed to be consumed by a separate emitter (e.g., your `java
 
 ## Output
 
-- `model.ir.json` in IR v1 format:
+- `model.ir.json` in IR schema v2 format:
   - `IrModel.schemaVersion = "1.0"`
   - classifiers, relations, stereotypes, taggedValues
-- Optional: `extraction-report-v1` JSON with counts + findings (unresolved types/imports, etc.).
+- Optional: `extraction-report-v2` JSON with counts + findings (unresolved types/imports, etc.).
 
 ## Usage
 
@@ -57,7 +57,7 @@ frontend-to-ir extract --mode ts --project . --out out/model.ir.json --exclude "
 
 This repo targets the IR schema and conventions defined in the `java-to-xmi` project:
 
-- `docs/ir/ir-schema-v1.json`
+- `docs/ir/ir-schema-v2.json`
 - `docs/ir/framework-conventions.md`
 
 You should copy those files into this repo (or add them as a git submodule / npm package later). The development plan below describes how.
@@ -76,7 +76,7 @@ This repository publishes a ready-to-run HTTP service image used by `code-to-xmi
 Endpoints:
 
 - `GET /health`
-- `POST /v1/ir` (multipart `inputZip` or `repoUrl`, plus `mode=react|angular|ts|js`)
+- `POST /v2/ir` (multipart `inputZip` or `repoUrl`, plus `mode=react|angular|ts|js`)
 
 Run it directly:
 

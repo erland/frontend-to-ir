@@ -10,7 +10,7 @@ This document describes the refactoring guardrails for the TypeScript extractor 
 
 ## Non-goals
 
-- No schema changes (IR v1 remains unchanged).
+- No schema changes (IR schema v2 remains unchanged).
 - No feature changes or logic improvements unless a bug is found while refactoring.
 
 ## Safety net

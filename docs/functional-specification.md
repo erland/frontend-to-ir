@@ -2,7 +2,7 @@
 
 ## 1. Purpose
 
-The tool shall analyze a source repository containing TypeScript/JavaScript code (optionally React and/or Angular) and produce a **language-agnostic IR JSON** (IR v1) describing:
+The tool shall analyze a source repository containing TypeScript/JavaScript code (optionally React and/or Angular) and produce a **language-agnostic IR JSON** (IR schema v2) describing:
 
 - Structural types (classes/interfaces/enums/type aliases) and their members
 - Operations/functions and their signatures (best-effort for JS)
@@ -16,9 +16,9 @@ The emitted IR JSON shall be consumable by a separate emitter (e.g., `java-to-xm
 
 ## 2. Definitions
 
-### 2.1 IR v1 (output format)
+### 2.1 IR schema v2 (output format)
 
-The tool outputs JSON conforming to an **IR v1 schema** equivalent to:
+The tool outputs JSON conforming to an **IR schema v2 schema** equivalent to:
 
 - `IrModel { schemaVersion, packages[], classifiers[], relations[], taggedValues[] }`
 - `IrClassifier { id, name, qualifiedName, packageId, kind, visibility, attributes[], operations[], stereotypes[], taggedValues[], source }`
@@ -163,7 +163,7 @@ Packages may be:
 - derived from folder structure (`src/app/...` → package segments) OR
 - omitted entirely (packageId null) for MVP
 
-Packages are optional in IR v1; do not require them for first release.
+Packages are optional in IR schema v2; do not require them for first release.
 
 ### 4.3 Type references
 

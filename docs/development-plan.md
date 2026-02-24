@@ -1,4 +1,4 @@
-# Development plan — TypeScript/JavaScript/React/Angular → IR JSON (v1)
+# Development plan — TypeScript/JavaScript/React/Angular → IR JSON (v2)
 
 This plan is intentionally structured so **each step can be implemented in a single prompt** by an LLM and produces a runnable repo after every step.
 
@@ -24,16 +24,16 @@ This plan is intentionally structured so **each step can be implemented in a sin
 
 ---
 
-## Step 2 — Add IR v1 types and JSON writer (deterministic output)
+## Step 2 — Add IR schema v2 types and JSON writer (deterministic output)
 
-**Goal:** Implement IR v1 TypeScript interfaces mirroring the Java IR, plus deterministic JSON output.
+**Goal:** Implement IR schema v2 TypeScript interfaces mirroring the Java IR, plus deterministic JSON output.
 
 **Tasks:**
 - Add `src/ir/` with TS types:
   - `IrModel`, `IrClassifier`, `IrRelation`, `IrTypeRef`, etc.
 - Add `src/ir/normalize.ts` to sort arrays deterministically
 - Add `src/ir/write.ts` to write pretty JSON with stable ordering and newline
-- Add `src/ir/schema/ir-schema-v1.json` (copy from java-to-xmi) + a tiny validator (Ajv) in tests
+- Add `src/ir/schema/ir-schema-v2.json` (copy from java-to-xmi) + a tiny validator (Ajv) in tests
 
 **Exit criteria:**
 - A unit test writes an example IR and matches a golden fixture exactly
@@ -163,7 +163,7 @@ This plan is intentionally structured so **each step can be implemented in a sin
 ## Notes for continuing in a fresh chat
 
 To resume implementation later without prior context, provide:
-- The IR v1 JSON schema (`src/ir/schema/ir-schema-v1.json`) and examples
+- The IR schema v2 JSON schema (`src/ir/schema/ir-schema-v2.json`) and examples
 - The CLI contract (flags and exit codes)
 - The golden fixture strategy and determinism rules
 - The mapping rules for React and Angular (stereotypes, tags, relation kinds)
