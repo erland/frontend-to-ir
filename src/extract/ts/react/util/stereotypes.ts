@@ -1,4 +1,5 @@
 import type { IrClassifier } from '../../../../ir/irV1';
+import { ensureFramework, setTaggedValue } from '../../../../ir/taggedValues';
 
 export function hasStereotype(c: IrClassifier, name: string): boolean {
   return (c.stereotypes ?? []).some((st) => st.name === name);
@@ -10,8 +11,9 @@ export function addStereotype(c: IrClassifier, name: string): void {
 }
 
 export function setClassifierTag(c: IrClassifier, key: string, value: string): void {
-  c.taggedValues = c.taggedValues ?? [];
-  const existing = c.taggedValues.find((tv) => tv.key === key);
-  if (existing) existing.value = value;
-  else c.taggedValues.push({ key, value });
+  setTaggedValue(c, key, value);
+}
+
+export function setFramework(c: IrClassifier, framework: string): void {
+  ensureFramework(c, framework);
 }

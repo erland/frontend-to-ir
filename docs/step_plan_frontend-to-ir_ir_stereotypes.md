@@ -170,7 +170,11 @@ Then for each stereotype you emit, set:
 
 ---
 
-## Step 6 — Emit tagged values consistently (optional but recommended)
+\1
+Deliverables:
+- `src/ir/taggedValues.ts` (shared tagged value helpers)
+- `docs/tagged-values-conventions.md`
+
 ### Deliverables
 - A tagged value schema for stereotypes that carry extra data (selector, route, hook name, file path, etc.)
 - Implementation in extraction:

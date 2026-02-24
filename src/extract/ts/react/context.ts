@@ -7,6 +7,7 @@ import { hashId } from '../../../util/id';
 import type { ReactWorkContext } from './types';
 import { toPosixPath } from './util';
 import { ensurePackageHierarchy } from '../packageHierarchy';
+import { setFramework } from './util/stereotypes';
 
 function hasContextStereo(c: IrClassifier): boolean {
   return (c.stereotypes ?? []).some((st) => st.name === 'ReactContext');
@@ -48,7 +49,7 @@ function ensureContextClassifier(rctx: ReactWorkContext, sf: ts.SourceFile, node
 
   c.kind = 'SERVICE';
   rctx.addStereotype(c, 'ReactContext');
-  rctx.setClassifierTag(c, 'framework', 'react');
+  setFramework(c, 'react');
   if (typeNode) rctx.setClassifierTag(c, 'react.contextType', safeNodeText(typeNode, sf));
   return c;
 }

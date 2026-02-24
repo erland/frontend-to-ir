@@ -6,6 +6,7 @@ import { hashId } from '../../../util/id';
 import type { ReactWorkContext } from './types';
 import { functionLikeReturnsJsx, toPosixPath } from './util';
 import { applyReactPropsState, isReactFcType } from './propsState';
+import { setFramework } from './util/stereotypes';
 
 function ensureComponentClassifier(rctx: ReactWorkContext, sf: ts.SourceFile, node: ts.Node, name: string): IrClassifier {
   const { projectRoot, model, classifierByFileAndName } = rctx;
@@ -35,7 +36,7 @@ function ensureComponentClassifier(rctx: ReactWorkContext, sf: ts.SourceFile, no
 
   c.kind = 'COMPONENT';
   rctx.addStereotype(c, 'ReactComponent');
-  rctx.setClassifierTag(c, 'framework', 'react');
+  setFramework(c, 'react');
   return c;
 }
 
