@@ -3,6 +3,7 @@ import { scanSourceFiles } from '../../scan/sourceScanner';
 import { enrichReactModel } from './react/reactEnricher';
 import { enrichAngularModel } from './angular/angularEnricher';
 import { canonicalizeIrModel } from '../../ir/canonicalizeIrModel';
+import { buildStereotypeRegistryFromLegacy } from '../../ir/stereotypes/buildStereotypeRegistry';
 import type { ExtractionReport } from '../../report/extractionReport';
 import { extractImportGraphRelations } from './imports/importGraph';
 import { extractStructuralModel } from './structural/structuralExtractor';
@@ -124,8 +125,11 @@ const { program, checker, compilerOptions } = createProgramFromScan({
   }
 
 
-  // Step 8: populate report counts + unresolved tracking.
-  if (opts.report) postProcessReportFromModel(model, opts.report);
+  // Step 3: Build IR v2 stereotype registry + refs from existing legacy stereotypes.
+  const withStereotypes = buildStereotypeRegistryFromLegacy(model);
 
-  return canonicalizeIrModel(model);
+  // Step 8: populate report counts + unresolved tracking.
+  if (opts.report) postProcessReportFromModel(withStereotypes, opts.report);
+
+  return canonicalizeIrModel(withStereotypes);
 }
