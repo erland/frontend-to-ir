@@ -9,6 +9,7 @@ import type {
   IrStereotypeRef,
 } from '../irV1';
 import { stableStereotypeId } from './stereotypeId';
+import { appliesToForAttribute, appliesToForClassifierKind, appliesToForOperation, appliesToForRelationKind } from './appliesTo';
 
 type OwnerKind = 'classifier' | 'attribute' | 'operation' | 'relation';
 
@@ -20,20 +21,6 @@ function getFramework(taggedValues?: { key: string; value: string }[]): string |
 }
 
 
-function appliesToForOwnerKind(kind: OwnerKind): string[] {
-  switch (kind) {
-    case 'classifier':
-      return ['Class'];
-    case 'attribute':
-      return ['Property'];
-    case 'operation':
-      return ['Operation'];
-    case 'relation':
-      return ['Dependency'];
-    default:
-      return ['NamedElement'];
-  }
-}
 
 /**
  * Builds IR v2 stereotype registry + refs from currently emitted legacy stereotypes.
@@ -47,7 +34,7 @@ function appliesToForOwnerKind(kind: OwnerKind): string[] {
 export function buildStereotypeRegistryFromLegacy(model: IrModel): IrModel {
   const defsById = new Map<string, IrStereotypeDefinition>();
 
-  const addDefs = (owner: Owner, kind: OwnerKind) => {
+  const addDefs = (owner: Owner, appliesTo: string[]) => {
     for (const s of owner.stereotypes ?? []) {
       const id = stableStereotypeId(owner.framework, s);
       if (!defsById.has(id)) {
@@ -56,7 +43,7 @@ export function buildStereotypeRegistryFromLegacy(model: IrModel): IrModel {
           name: s.name,
           qualifiedName: s.qualifiedName ?? null,
           profileName: owner.framework ? owner.framework : 'Generic',
-          appliesTo: appliesToForOwnerKind(kind),
+          appliesTo,
           properties: [],
         });
       }
@@ -74,16 +61,16 @@ export function buildStereotypeRegistryFromLegacy(model: IrModel): IrModel {
 
   const classifiers: IrClassifier[] = (model.classifiers ?? []).map((c) => {
     const fw = getFramework(c.taggedValues);
-    addDefs({ kind: 'classifier', framework: fw, stereotypes: c.stereotypes }, 'classifier');
+    addDefs({ kind: 'classifier', framework: fw, stereotypes: c.stereotypes }, appliesToForClassifierKind(c.kind));
 
     const attributes: IrAttribute[] = (c.attributes ?? []).map((a) => {
-      addDefs({ kind: 'attribute', framework: fw, stereotypes: a.stereotypes }, 'attribute');
+      addDefs({ kind: 'attribute', framework: fw, stereotypes: a.stereotypes }, appliesToForAttribute());
       const stereotypeRefs = mkRefs({ kind: 'attribute', framework: fw, stereotypes: a.stereotypes });
       return { ...a, stereotypeRefs: stereotypeRefs.length ? stereotypeRefs : a.stereotypeRefs };
     });
 
     const operations: IrOperation[] = (c.operations ?? []).map((o) => {
-      addDefs({ kind: 'operation', framework: fw, stereotypes: o.stereotypes }, 'operation');
+      addDefs({ kind: 'operation', framework: fw, stereotypes: o.stereotypes }, appliesToForOperation());
       const stereotypeRefs = mkRefs({ kind: 'operation', framework: fw, stereotypes: o.stereotypes });
       return { ...o, stereotypeRefs: stereotypeRefs.length ? stereotypeRefs : o.stereotypeRefs };
     });
@@ -100,7 +87,7 @@ export function buildStereotypeRegistryFromLegacy(model: IrModel): IrModel {
 
   const relations: IrRelation[] = (model.relations ?? []).map((r) => {
     const fw = getFramework(r.taggedValues);
-    addDefs({ kind: 'relation', framework: fw, stereotypes: r.stereotypes }, 'relation');
+    addDefs({ kind: 'relation', framework: fw, stereotypes: r.stereotypes }, appliesToForRelationKind(r.kind));
     const stereotypeRefs = mkRefs({ kind: 'relation', framework: fw, stereotypes: r.stereotypes });
     return { ...r, stereotypeRefs: stereotypeRefs.length ? stereotypeRefs : r.stereotypeRefs };
   });
