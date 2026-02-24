@@ -9,14 +9,11 @@ const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 200
 
 const CLI = process.env.FRONTEND_TO_IR_CLI || "/deps/frontend-to-ir/dist/cli.js";
 
-app.get("/health", (_req, res) => res.json({ ok: true }));
-
-app.post("/v1/ir", upload.single("inputZip"), async (req, res) => {
+async function handleIr(req, res, apiVersion) {
   const mode = (req.body.mode || req.body.language || "").toLowerCase();
   if (!mode) return res.status(400).json({ error: "Missing field: mode (or language)" });
 
   const repoUrl = req.body.repoUrl;
-
   const wd = await makeWorkdir("ir");
   try {
     const projectDir = path.join(wd.root, "project");
@@ -34,32 +31,34 @@ app.post("/v1/ir", upload.single("inputZip"), async (req, res) => {
     await fs.promises.mkdir(outDir, { recursive: true });
     const outFile = path.join(outDir, "model.ir.json");
 
-    // frontend-to-ir CLI has no "extract" subcommand; extraction is the default action.
-    // It expects --source and --out, and uses --framework auto|react|angular|none.
+    // frontend-to-ir CLI expects --source and --out, and uses --framework auto|react|angular|none.
     const framework = (mode === "react" || mode === "angular") ? mode : "none";
 
-    const rawDeps = String(req.body.deps ?? '').trim().toLowerCase();
-    const includeDeps = rawDeps in {'1':1,'true':1,'yes':1,'y':1,'on':1,'all':1,'calls':1};
+    const rawDeps = String(req.body.deps ?? "").trim().toLowerCase();
+    const includeDeps = rawDeps in { "1":1, "true":1, "yes":1, "y":1, "on":1, "all":1, "calls":1 };
 
-
-    // Run: node <cli.js> --framework <framework> --source <dir> --out <file>
     const args = [CLI, "--framework", framework, "--source", projectDir, "--out", outFile];
-    if (includeDeps) {
-      // frontend-to-ir CLI: --deps all|none
-      args.push("--deps", "all");
-    }
+    if (includeDeps) args.push("--deps", "all");
 
-    await execOrThrow("node", args, {
-      timeoutMs: 5 * 60_000,
-    });
+    await execOrThrow("node", args, { timeoutMs: 5 * 60_000 });
 
     const irJson = await fs.promises.readFile(outFile, "utf-8");
-    res.status(200).type("application/json").send(irJson);
+    // Note: the IR is IR-schema-v2 compatible (v2 adds stereotypeDefinitions + stereotypeRefs).
+    res.setHeader("X-IR-API-Version", apiVersion);
+    res.setHeader("X-IR-Schema", "v2");
+    return res.status(200).type("application/json").send(irJson);
   } catch (err) {
-    res.status(500).json({ error: String(err?.message || err) });
+    return res.status(500).json({ error: String(err?.message || err) });
   } finally {
     await wd.cleanup();
   }
-});
+}
+
+app.get("/health", (_req, res) => res.json({ ok: true }));
+
+app.post("/v1/ir", upload.single("inputZip"), async (req, res) => handleIr(req, res, "v1"));
+
+// v2 is identical payload today; versioned route is provided for forward compatibility.
+app.post("/v2/ir", upload.single("inputZip"), async (req, res) => handleIr(req, res, "v2"));
 
 app.listen(7071, () => console.log("ir-service listening on :7071"));
