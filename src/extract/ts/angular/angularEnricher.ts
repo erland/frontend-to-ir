@@ -3,16 +3,14 @@ import path from 'node:path';
 import type { IrClassifier, IrRelationKind, IrTaggedValue } from '../../../ir/irV1';
 import type { ExtractorContext } from '../context';
 import { detectAngularDecorators, applyAngularClassifierDecoration } from './decorators';
-import { extractConstructorDiEdges, extractInjectFunctionEdges, extractProviderRegistrationEdges } from './di';
-import { extractAngularHttpEdges } from './http';
-import { buildNgRxIndex, extractAngularStateEdges, addNgRxEffectOfTypeEdges } from './stateNgRx';
-import { buildAngularTemplateIndex, extractAngularTemplateEdges } from './templates';
-import { extractNgModuleEdges } from './ngModule';
-import { extractStandaloneComponentEdges } from './modules';
-import { extractInputsOutputs } from './inputsOutputs';
-import { extractAngularRoutesFromSourceFile } from './routing';
 import { getDecorators, sourceRefForNode, toPosixPath } from './util';
 import { emitRoutingRelation } from '../routing';
+import { enrichAngularNgModule, enrichAngularComponentModuleEdges } from './enrich/modules';
+import { enrichAngularDi, postProcessAngularInterceptors } from './enrich/di';
+import { enrichAngularHttp } from './enrich/http';
+import { createNgRxIndex, enrichAngularState } from './enrich/state';
+import { createTemplateIndex, enrichAngularTemplates } from './enrich/templates';
+import { enrichAngularRoutingFile } from './enrich/routing';
 
 export function enrichAngularModel(ctx: ExtractorContext) {
   const { program, projectRoot, scannedRel, model } = ctx;
@@ -23,14 +21,9 @@ export function enrichAngularModel(ctx: ExtractorContext) {
 
   const classifierByName = new Map<string, IrClassifier>();
   for (const c of model.classifiers) classifierByName.set(c.name, c);
-
-  // State graph (NgRx) index (best-effort)
-  const ngrxIndex = buildNgRxIndex({ program, projectRoot, scannedRel, model });
-  // Global NgRx effect -> action edges (ofType)
-  addNgRxEffectOfTypeEdges({ program, projectRoot, scannedRel, model, ngrx: ngrxIndex, report });
-
-  // Template coupling index (pipes/directives/components)
-  const templateIndex = buildAngularTemplateIndex({ program, projectRoot, scannedRel, model });
+  // Stage indices used by later steps
+  const ngrxIndex = createNgRxIndex({ program, projectRoot, scannedRel, model, report });
+  const templateIndex = createTemplateIndex({ program, projectRoot, scannedRel, model });
 
   const hasStereotype = (c: IrClassifier, name: string) => (c.stereotypes ?? []).some((st) => st.name === name);
   const addStereo = (c: IrClassifier, name: string) => {
@@ -123,20 +116,10 @@ export function enrichAngularModel(ctx: ExtractorContext) {
         applyAngularClassifierDecoration(c, info, { addStereo, setTag });
 
         if (info.isNgModule) {
-          extractNgModuleEdges({
+          enrichAngularNgModule({
             sf,
             node,
             relPath: rel,
-            c,
-            classifierByName,
-            addRelation,
-            report,
-          });
-
-          extractProviderRegistrationEdges({
-            sf,
-            rel,
-            node,
             c,
             classifierByName,
             addRelation,
@@ -145,10 +128,10 @@ export function enrichAngularModel(ctx: ExtractorContext) {
         }
 
         if (info.isComponent) {
-          extractInputsOutputs({
+          enrichAngularComponentModuleEdges({
             sf,
             node,
-            rel,
+            relPath: rel,
             projectRoot,
             c,
             checker,
@@ -157,34 +140,12 @@ export function enrichAngularModel(ctx: ExtractorContext) {
             addRelation,
             report,
           });
-
-
-          extractProviderRegistrationEdges({
-            sf,
-            rel,
-            node,
-            c,
-            classifierByName,
-            addRelation,
-            report,
-          });
-
-          extractStandaloneComponentEdges({
-            sf,
-            node,
-            relPath: rel,
-            c,
-            classifierByName,
-            addRelation,
-            report,
-          });
-
         }
 
         if (info.isComponent || info.isInjectable) {
-          extractConstructorDiEdges({
+          enrichAngularDi({
             sf,
-            rel,
+            relPath: rel,
             node,
             c,
             checker,
@@ -193,20 +154,9 @@ export function enrichAngularModel(ctx: ExtractorContext) {
             report,
           });
 
-          extractInjectFunctionEdges({
+          enrichAngularHttp({
             sf,
-            rel,
-            node,
-            c,
-            classifierByName,
-            addRelation,
-            report,
-          });
-
-          // HTTP call graph (HttpClient)
-          extractAngularHttpEdges({
-            sf,
-            rel,
+            relPath: rel,
             projectRoot,
             node,
             c,
@@ -216,10 +166,9 @@ export function enrichAngularModel(ctx: ExtractorContext) {
             report,
           });
 
-          // State graph (NgRx)
-          extractAngularStateEdges({
+          enrichAngularState({
             sf,
-            rel,
+            relPath: rel,
             projectRoot,
             node,
             c,
@@ -230,9 +179,9 @@ export function enrichAngularModel(ctx: ExtractorContext) {
 
           // Template coupling (pipes/directives/components usage)
           if (info.isComponent) {
-            extractAngularTemplateEdges({
+            enrichAngularTemplates({
               sf,
-              rel,
+              relPath: rel,
               projectRoot,
               node,
               c,
@@ -250,35 +199,18 @@ export function enrichAngularModel(ctx: ExtractorContext) {
 
     visit(sf);
 
-    // Routing extraction (file-level)
-    extractAngularRoutesFromSourceFile({
+    enrichAngularRoutingFile({
       sf,
-      rel,
+      relPath: rel,
       projectRoot,
       model,
       checker,
       classifierByName,
       addRelation,
       report,
-      markTarget: (target, stereo, tags) => {
-        addStereo(target, stereo);
-        if (tags) {
-          for (const [k, v] of Object.entries(tags)) setTag(target, `angular.${k}`, v);
-        }
-      },
+      addStereo,
+      setTag,
     });
   }
-
-
-  // Post-pass: mark HTTP interceptors based on DI provider registrations.
-  for (const r of model.relations ?? []) {
-    if (r.kind !== 'DI') continue;
-    const tv = (k: string) => (r.taggedValues ?? []).find((t) => t.key === k)?.value;
-    const provide = tv('provide') ?? tv('token') ?? '';
-    if (provide !== 'HTTP_INTERCEPTORS') continue;
-    const target = model.classifiers.find((c) => c.id === r.targetId);
-    if (!target) continue;
-    addStereo(target, 'AngularInterceptor');
-    setTag(target, 'angular.interceptor', 'true');
-  }
+  postProcessAngularInterceptors({ model, addStereo, setTag });
 }
